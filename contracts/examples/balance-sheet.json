@@ -1,0 +1,42 @@
+{
+  "company": "Synthetic Demo Company",
+  "reporting_date": "2026-01-31",
+  "currency": "INR",
+  "unit_scale": 100000,
+  "assets": {
+    "current": [
+      { "canonical_field": "cash", "raw_label": "Cash", "value": 100, "source_row": 6 },
+      { "canonical_field": "receivables", "raw_label": "Receivables", "value": 50, "source_row": 7 }
+    ],
+    "non_current": [
+      { "canonical_field": "property_plant_equipment", "raw_label": "Equipment", "value": 150, "source_row": 9 }
+    ],
+    "total": 300
+  },
+  "liabilities": {
+    "current": [
+      { "canonical_field": "trade_payables", "raw_label": "Payables", "value": 80, "source_row": 12 }
+    ],
+    "non_current": [
+      { "canonical_field": "long_term_borrowings", "raw_label": "Long-term loan", "value": 40, "source_row": 15 }
+    ],
+    "total": 120
+  },
+  "equity": { "share_capital": 150, "retained_earnings": 30, "total": 180 },
+  "unmapped": [],
+  "source_metadata": {
+    "document_id": "10000000-0000-4000-8000-000000000002",
+    "sheet_name": "Balance Sheet"
+  },
+  "source_locations": {
+    "company": { "source_row": 1 },
+    "reporting_date": { "source_row": 2 },
+    "currency": { "source_row": 3 },
+    "unit_scale": { "source_row": 3 },
+    "assets.total": { "source_row": 10 },
+    "liabilities.total": { "source_row": 16 },
+    "equity.share_capital": { "source_row": 18 },
+    "equity.retained_earnings": { "source_row": 19 },
+    "equity.total": { "source_row": 20 }
+  }
+}

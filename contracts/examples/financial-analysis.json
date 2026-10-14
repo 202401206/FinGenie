@@ -1,0 +1,42 @@
+{
+  "workspace_id": "20000000-0000-4000-8000-000000000001",
+  "document_type": "bank_statement",
+  "currency": "INR",
+  "reliability": "valid",
+  "metrics": [
+    {
+      "key": "total_credit",
+      "value": 5000,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "bank.total_credit.v1",
+      "source_refs": [
+        { "document_id": "10000000-0000-4000-8000-000000000001", "sheet_name": null, "source_rows": [6], "field_paths": ["transactions[0].credit"] }
+      ]
+    },
+    {
+      "key": "total_debit",
+      "value": 2500,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "bank.total_debit.v1",
+      "source_refs": [
+        { "document_id": "10000000-0000-4000-8000-000000000001", "sheet_name": null, "source_rows": [7, 8], "field_paths": ["transactions[1].debit", "transactions[2].debit"] }
+      ]
+    },
+    {
+      "key": "net_cash_flow",
+      "value": 2500,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "bank.net_cash_flow.v1",
+      "source_refs": [
+        { "document_id": "10000000-0000-4000-8000-000000000001", "sheet_name": null, "source_rows": [6, 7, 8], "field_paths": ["transactions[0].credit", "transactions[1].debit", "transactions[2].debit"] }
+      ]
+    }
+  ],
+  "warnings": []
+}

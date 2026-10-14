@@ -1,0 +1,31 @@
+{
+  "workspace_id": "20000000-0000-4000-8000-000000000002",
+  "document_type": "balance_sheet",
+  "currency": "INR",
+  "reliability": "valid",
+  "metrics": [
+    {
+      "key": "working_capital",
+      "value": 7000000,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "balance_sheet.working_capital.v1",
+      "source_refs": [
+        { "document_id": "10000000-0000-4000-8000-000000000002", "sheet_name": "Balance Sheet", "source_rows": [3, 6, 7, 12], "field_paths": ["unit_scale", "assets.current[0].value", "assets.current[1].value", "liabilities.current[0].value"] }
+      ]
+    },
+    {
+      "key": "balance_difference",
+      "value": 0,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "balance_sheet.balance_difference.v1",
+      "source_refs": [
+        { "document_id": "10000000-0000-4000-8000-000000000002", "sheet_name": "Balance Sheet", "source_rows": [3, 10, 16, 20], "field_paths": ["unit_scale", "assets.total", "liabilities.total", "equity.total"] }
+      ]
+    }
+  ],
+  "warnings": []
+}

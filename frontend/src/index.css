@@ -1,0 +1,21 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #17332d;
+  background: #f5f8f7;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 48rem;
+  margin: 5rem auto;
+  padding: 0 1.5rem;
+}
+
+h1 {
+  font-size: 2.5rem;
+}
