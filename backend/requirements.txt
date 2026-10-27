@@ -3,6 +3,8 @@ fastapi>=0.115,<1.0
 uvicorn>=0.30,<1.0
 pydantic>=2.9,<3.0
 pydantic-settings>=2.5,<3.0
+# HTTP client for external services (Groq LLM API and Supabase Auth)
+httpx>=0.27,<1.0
 # Required project stack; reserved for future parsers, not imported yet.
 pandas>=2.2,<3.0
 openpyxl>=3.1,<4.0
