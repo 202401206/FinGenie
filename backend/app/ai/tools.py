@@ -333,6 +333,11 @@ def _execute_balance_sheet_tool(
 
     if name == "balance_sheet_working_capital":
         working_capital = (curr_assets - curr_liab) * scale
+        bs_rows = [
+            item.get("source_row", 0)
+            for item in assets.get("current", []) + liabilities.get("current", [])
+            if item.get("source_row", 0) > 0
+        ]
         return ToolResult(
             name=name,
             value=working_capital,
@@ -342,13 +347,7 @@ def _execute_balance_sheet_tool(
                 SourceRef(
                     document_id=doc_id,
                     sheet_name=sheet_name,
-                    source_rows=[
-                        item.get("source_row", 0) for item in assets.get("current", [])
-                    ]
-                    + [
-                        item.get("source_row", 0)
-                        for item in liabilities.get("current", [])
-                    ],
+                    source_rows=bs_rows,
                     field_paths=["assets.current", "liabilities.current"],
                 )
             ],
@@ -366,6 +365,11 @@ def _execute_balance_sheet_tool(
             )
 
         ratio = round(curr_assets / curr_liab, 2)
+        cr_rows = [
+            item.get("source_row", 0)
+            for item in assets.get("current", []) + liabilities.get("current", [])
+            if item.get("source_row", 0) > 0
+        ]
         return ToolResult(
             name=name,
             value=ratio,
@@ -375,13 +379,7 @@ def _execute_balance_sheet_tool(
                 SourceRef(
                     document_id=doc_id,
                     sheet_name=sheet_name,
-                    source_rows=[
-                        item.get("source_row", 0) for item in assets.get("current", [])
-                    ]
-                    + [
-                        item.get("source_row", 0)
-                        for item in liabilities.get("current", [])
-                    ],
+                    source_rows=cr_rows,
                     field_paths=["assets.current", "liabilities.current"],
                 )
             ],
@@ -392,6 +390,22 @@ def _execute_balance_sheet_tool(
         total_liab = Decimal(str(liabilities.get("total", 0)))
         total_eq = Decimal(str(equity.get("total", 0)))
         diff = total_assets - (total_liab + total_eq)
+
+        recon_rows = [
+            r
+            for r in [
+                data.get("source_locations", {})
+                .get("assets.total", {})
+                .get("source_row", 0),
+                data.get("source_locations", {})
+                .get("liabilities.total", {})
+                .get("source_row", 0),
+                data.get("source_locations", {})
+                .get("equity.total", {})
+                .get("source_row", 0),
+            ]
+            if r > 0
+        ]
 
         return ToolResult(
             name=name,
@@ -406,17 +420,7 @@ def _execute_balance_sheet_tool(
                 SourceRef(
                     document_id=doc_id,
                     sheet_name=sheet_name,
-                    source_rows=[
-                        data.get("source_locations", {})
-                        .get("assets.total", {})
-                        .get("source_row", 0),
-                        data.get("source_locations", {})
-                        .get("liabilities.total", {})
-                        .get("source_row", 0),
-                        data.get("source_locations", {})
-                        .get("equity.total", {})
-                        .get("source_row", 0),
-                    ],
+                    source_rows=recon_rows,
                     field_paths=["assets.total", "liabilities.total", "equity.total"],
                 )
             ],

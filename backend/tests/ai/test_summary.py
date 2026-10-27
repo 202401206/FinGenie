@@ -56,7 +56,7 @@ async def test_bank_summary_with_mocked_groq() -> None:
 
         mock_payload = {
             "id": "chatcmpl-test-summary",
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "choices": [
                 {
                     "message": {

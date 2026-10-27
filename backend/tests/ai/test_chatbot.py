@@ -84,7 +84,7 @@ async def test_chat_tool_calling_loop_with_mocked_groq() -> None:
             # Turn 1: Groq asks to run the 'bank_net_cash_flow' tool
             mock_payload = {
                 "id": "chatcmpl-turn-1",
-                "model": "llama-3.3-70b-versatile",
+                "model": "openai/gpt-oss-120b",
                 "choices": [
                     {
                         "message": {
@@ -115,7 +115,7 @@ async def test_chat_tool_calling_loop_with_mocked_groq() -> None:
 
         mock_payload = {
             "id": "chatcmpl-turn-2",
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "choices": [
                 {
                     "message": {
@@ -162,3 +162,19 @@ async def test_chat_message_too_long_raises_error() -> None:
     data = load_fixture("bank-statement.json")
     with pytest.raises(ValueError, match="Message exceeds maximum length"):
         await chat_with_workspace("a" * 2001, data)
+
+
+@pytest.mark.anyio
+async def test_chat_unsupported_metric_refusal_offline() -> None:
+    data = load_fixture("bank-statement.json")
+    unconfigured_provider = GroqProvider(settings=Settings(groq_api_key=None))
+
+    for query in ["What is my credit score?", "How much cryptocurrency did I buy?"]:
+        response = await chat_with_workspace(
+            message=query,
+            workspace_data=data,
+            provider=unconfigured_provider,
+        )
+        assert "I do not have a tool to calculate" in response.text
+        assert response.calculation_ids == []
+        assert response.source_refs == []

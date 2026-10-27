@@ -150,7 +150,7 @@ Add to `backend/.env` (defaults already set in `backend/.env.example`):
 ```properties
 # Groq LLM Configuration (get free key at https://console.groq.com)
 FINGENIE_GROQ_API_KEY=your_groq_api_key_here
-FINGENIE_GROQ_MODEL=llama-3.3-70b-versatile
+FINGENIE_GROQ_MODEL=openai/gpt-oss-120b
 FINGENIE_GROQ_BASE_URL=https://api.groq.com/openai/v1
 ```
 *Note: If `FINGENIE_GROQ_API_KEY` is omitted, the app operates seamlessly in offline fallback mode without crashing.*

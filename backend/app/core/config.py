@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     # --- Groq LLM Configuration ---
     # SecretStr protects the API key from leaking into server logs or traceback prints
     groq_api_key: SecretStr | None = None
-    # Default model: Llama 3.3 70B Versatile, optimal for reasoning and tool calling
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Default model on Groq: high-reasoning model with native tool calling
+    groq_model: str = "openai/gpt-oss-120b"
     # Base URL for Groq's OpenAI-compatible chat completions API
     groq_base_url: str = "https://api.groq.com/openai/v1"
 

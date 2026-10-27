@@ -18,7 +18,7 @@ from app.core.config import Settings
 def make_test_settings(api_key: str | None = "fake-groq-key") -> Settings:
     return Settings(
         groq_api_key=SecretStr(api_key) if api_key else None,
-        groq_model="llama-3.3-70b-versatile",
+        groq_model="openai/gpt-oss-120b",
         groq_base_url="https://mock.groq.test/v1",
     )
 
@@ -40,12 +40,12 @@ async def test_groq_text_response_success() -> None:
     def mock_handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer fake-groq-key"
         body = json.loads(request.content.decode("utf-8"))
-        assert body["model"] == "llama-3.3-70b-versatile"
+        assert body["model"] == "openai/gpt-oss-120b"
         assert body["messages"][0]["content"] == "Summarize my finances"
 
         mock_payload = {
             "id": "chatcmpl-test-123",
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "choices": [
                 {
                     "message": {
@@ -79,7 +79,7 @@ async def test_groq_tool_call_response() -> None:
 
         mock_payload = {
             "id": "chatcmpl-test-tool",
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "choices": [
                 {
                     "message": {
