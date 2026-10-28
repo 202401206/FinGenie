@@ -5,6 +5,8 @@ and an AI assistant. Sprint 1 backend work has started.
 
 **Implemented:** a React title page, public `GET /api/health`, authenticated
 `GET /api/me`, and the initial Supabase tables, ownership policies and private bucket.
+The backend also has user-scoped workspace/transaction read repositories for
+connecting the upcoming routes; see [database access](backend/app/db/README.md).
 **Planned:** CSV/XLSX upload, Python parsing, deterministic financial calculations,
 dashboards, summaries, chat and bank-statement projections. Personal users may
 upload bank statements; business users may also upload balance sheets.
