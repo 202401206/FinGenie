@@ -19,3 +19,31 @@ main {
 h1 {
   font-size: 2.5rem;
 }
+/*
+new temporary code for switching between upload and settings 
+*/
+.dev-page-switcher {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e8f1;
+}
+
+.dev-page-switcher button {
+  padding: 9px 18px;
+  border: 1px solid #e0e4ef;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #30364b;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dev-page-switcher button.active {
+  border-color: #5367d5;
+  background: #eef0ff;
+  color: #4559c7;
+  font-weight: 600;
+}
