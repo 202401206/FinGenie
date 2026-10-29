@@ -2,9 +2,9 @@
 
 on:
   push:
-    branches: [ master, main, feature/** ]
+    branches: [ master, main, '**' ]
   pull_request:
-    branches: [ master, main, feature/** ]
+    branches: [ master, main, '**' ]
 
 jobs:
   test:
@@ -20,6 +20,9 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run Test Suite
-        working-directory: frontend
-        run: node run-tests.js
+      - name: Run Unit & Integration Tests
+        run: |
+          if [ -d "frontend" ]; then
+            cd frontend
+          fi
+          node --test tests/formatters.test.js tests/auth.test.js tests/transactions.test.js
