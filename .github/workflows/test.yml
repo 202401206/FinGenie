@@ -1,4 +1,4 @@
-﻿name: FinGenie CI Test Suite
+﻿name: FinGenie CI Suite
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Run Unit & Integration Tests
+    name: Run Unit & Contract Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -20,9 +20,9 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run Unit & Integration Tests
+      - name: Run Unit & Contract Tests
         run: |
           if [ -d "frontend" ]; then
             cd frontend
           fi
-          node --test tests/formatters.test.js tests/auth.test.js tests/transactions.test.js
+          node --test tests/*.test.js

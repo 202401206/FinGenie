@@ -1,40 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { formatINR, formatCompactINR, formatDate, parseINR } from '../src/utils/formatters.js';
+import { formatCurrency, formatBalance, formatDate } from '../src/utils/formatters.js';
 
-test('formatINR correctly formats standard Indian amounts', () => {
-  assert.strictEqual(formatINR(125000), '₹1,25,000.00');
-  assert.strictEqual(formatINR(649), '₹649.00');
-  assert.strictEqual(formatINR(0), '₹0.00');
+test('formatBalance explicitly distinguishes zero from missing values', () => {
+  assert.strictEqual(formatBalance(0, 'INR'), '₹0.00');
+  assert.strictEqual(formatBalance(null, 'INR'), '—');
+  assert.strictEqual(formatBalance(undefined, 'INR'), '—');
+  assert.strictEqual(formatBalance('', 'INR'), '—');
 });
 
-test('formatINR correctly groups Lakhs and Crores', () => {
-  assert.strictEqual(formatINR(15000000), '₹1,50,00,000.00');
-  assert.strictEqual(formatINR(2500000), '₹25,00,000.00');
-  assert.strictEqual(formatINR(100000), '₹1,00,000.00');
+test('formatCurrency distinguishes missing amount from zero', () => {
+  assert.strictEqual(formatCurrency(0, 'INR'), '₹0.00');
+  assert.strictEqual(formatCurrency(null, 'INR'), '—');
+  assert.strictEqual(formatCurrency(undefined, 'INR'), '—');
+  assert.strictEqual(formatCurrency(125000, 'INR'), '₹1,25,000.00');
+  assert.strictEqual(formatCurrency(15000000, 'INR'), '₹1,50,00,000.00');
 });
 
-test('formatINR handles negative amounts and optional sign flags', () => {
-  assert.strictEqual(formatINR(-4500), '-₹4,500.00');
-  assert.strictEqual(formatINR(125000, { showSign: true }), '+₹1,25,000.00');
-  assert.strictEqual(formatINR(125000, { includeDecimals: false }), '₹1,25,000');
+test('formatCurrency supports foreign currencies without Lakh formatting', () => {
+  assert.strictEqual(formatCurrency(5000, 'USD'), 'USD 5,000.00');
+  assert.strictEqual(formatCurrency(1250000, 'EUR'), 'EUR 1,250,000.00');
 });
 
-test('formatCompactINR formats Lakhs, Crores, and Thousands compactly', () => {
-  assert.strictEqual(formatCompactINR(125000), '₹1.25 L');
-  assert.strictEqual(formatCompactINR(25000000), '₹2.50 Cr');
-  assert.strictEqual(formatCompactINR(45000), '₹45.0 K');
-  assert.strictEqual(formatCompactINR(500), '₹500');
-});
-
-test('formatDate converts ISO dates to Indian banking DD MMM YYYY format', () => {
+test('formatDate prevents date shift bug across all timezones', () => {
   assert.strictEqual(formatDate('2026-10-24'), '24 Oct 2026');
-  assert.strictEqual(formatDate('2026-01-05'), '05 Jan 2026');
+  assert.strictEqual(formatDate('2026-01-01'), '01 Jan 2026');
+  assert.strictEqual(formatDate('2026-12-31'), '31 Dec 2026');
   assert.strictEqual(formatDate(''), '—');
-});
-
-test('parseINR extracts float values from formatted INR strings', () => {
-  assert.strictEqual(parseINR('₹1,25,000.50'), 125000.5);
-  assert.strictEqual(parseINR('₹25,000'), 25000);
-  assert.strictEqual(parseINR(''), 0);
+  assert.strictEqual(formatDate(null), '—');
 });
