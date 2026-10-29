@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.ai.tools import FINANCIAL_TOOLS, ToolExecutionError, execute_tool
+from app.ai.tools import FINANCIAL_TOOLS, ToolExecutionError, ToolResult, execute_tool
 
 
 def load_fixture(filename: str) -> dict:
@@ -90,3 +90,43 @@ def test_unknown_tool_raises_error() -> None:
     data = load_fixture("bank-statement.json")
     with pytest.raises(ToolExecutionError, match="Unknown bank statement tool"):
         execute_tool("non_existent_tool", {}, data)
+
+
+def test_tool_result_decimal_precision_preserved() -> None:
+    large_val = Decimal("123456789012345.6789")
+    tr = ToolResult(
+        name="test_tool",
+        value=large_val,
+        unit="INR",
+        calculation_id="test.calc.v1",
+    )
+    serialized = tr.to_dict()
+    assert serialized["value"] == "123456789012345.6789"
+    assert isinstance(serialized["value"], str)
+
+
+def test_bank_missing_currency_returns_unavailable() -> None:
+    data = load_fixture("bank-statement.json")
+    del data["currency"]
+    result = execute_tool("bank_total_credit", {}, data)
+    assert result.status == "unavailable"
+    assert result.value is None
+    assert "Missing currency" in (result.reason or "")
+
+
+def test_bank_missing_closing_balance_returns_unavailable() -> None:
+    data = load_fixture("bank-statement.json")
+    del data["closing_balance"]
+    result = execute_tool("bank_closing_balance", {}, data)
+    assert result.status == "unavailable"
+    assert result.value is None
+    assert "Closing balance is missing" in (result.reason or "")
+
+
+def test_missing_source_row_not_invented() -> None:
+    data = load_fixture("bank-statement.json")
+    # Remove source_row from second transaction
+    del data["transactions"][1]["source_row"]
+    result = execute_tool("bank_total_debit", {}, data)
+    # Only transaction 2 (source_row 8) should be present; transaction 1 should not have an invented index
+    assert result.source_refs[0].source_rows == [8]

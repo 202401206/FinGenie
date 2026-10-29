@@ -65,9 +65,7 @@ class ToolResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
-            "value": float(self.value)
-            if isinstance(self.value, Decimal)
-            else self.value,
+            "value": str(self.value) if isinstance(self.value, Decimal) else self.value,
             "unit": self.unit,
             "calculation_id": self.calculation_id,
             "status": self.status,
@@ -187,7 +185,7 @@ def execute_tool(
 
 def _get_document_meta(data: dict[str, Any]) -> tuple[str, str | None]:
     source_meta = data.get("source_metadata", {})
-    doc_id = source_meta.get("document_id", "default-doc-id")
+    doc_id = source_meta.get("document_id", "")
     sheet_name = source_meta.get("sheet_name")
     return doc_id, sheet_name
 
@@ -198,7 +196,17 @@ def _execute_bank_tool(
     data: dict[str, Any],
 ) -> ToolResult:
     doc_id, sheet_name = _get_document_meta(data)
-    currency = data.get("currency", "INR")
+    currency = data.get("currency")
+    if not currency:
+        return ToolResult(
+            name=name,
+            value=None,
+            unit="unknown",
+            calculation_id=f"bank.{name}.v1",
+            status="unavailable",
+            reason="Missing currency in statement data.",
+        )
+
     transactions = data.get("transactions", [])
 
     if name == "bank_total_credit":
@@ -209,7 +217,9 @@ def _execute_bank_tool(
             credit = Decimal(str(tx.get("credit", 0)))
             if credit > 0:
                 total += credit
-                source_rows.append(tx.get("source_row", i + 1))
+                row = tx.get("source_row")
+                if isinstance(row, int) and row > 0:
+                    source_rows.append(row)
                 field_paths.append(f"transactions[{i}].credit")
 
         return ToolResult(
@@ -235,7 +245,9 @@ def _execute_bank_tool(
             debit = Decimal(str(tx.get("debit", 0)))
             if debit > 0:
                 total += debit
-                source_rows.append(tx.get("source_row", i + 1))
+                row = tx.get("source_row")
+                if isinstance(row, int) and row > 0:
+                    source_rows.append(row)
                 field_paths.append(f"transactions[{i}].debit")
 
         return ToolResult(
@@ -261,13 +273,16 @@ def _execute_bank_tool(
         for i, tx in enumerate(transactions):
             cr = Decimal(str(tx.get("credit", 0)))
             dr = Decimal(str(tx.get("debit", 0)))
+            row = tx.get("source_row")
             if cr > 0:
                 credits += cr
-                source_rows.append(tx.get("source_row", i + 1))
+                if isinstance(row, int) and row > 0:
+                    source_rows.append(row)
                 field_paths.append(f"transactions[{i}].credit")
             if dr > 0:
                 debits += dr
-                source_rows.append(tx.get("source_row", i + 1))
+                if isinstance(row, int) and row > 0:
+                    source_rows.append(row)
                 field_paths.append(f"transactions[{i}].debit")
 
         net = credits - debits
@@ -287,7 +302,17 @@ def _execute_bank_tool(
         )
 
     if name == "bank_closing_balance":
-        closing = Decimal(str(data.get("closing_balance", 0)))
+        closing_raw = data.get("closing_balance")
+        if closing_raw is None:
+            return ToolResult(
+                name=name,
+                value=None,
+                unit=currency,
+                calculation_id="bank.closing_balance.v1",
+                status="unavailable",
+                reason="Closing balance is missing in statement data.",
+            )
+        closing = Decimal(str(closing_raw))
         closing_row = (
             data.get("source_locations", {})
             .get("closing_balance", {})
@@ -302,7 +327,9 @@ def _execute_bank_tool(
                 SourceRef(
                     document_id=doc_id,
                     sheet_name=sheet_name,
-                    source_rows=[closing_row] if closing_row else [],
+                    source_rows=[closing_row]
+                    if closing_row and closing_row > 0
+                    else [],
                     field_paths=["closing_balance"],
                 )
             ],
@@ -317,8 +344,28 @@ def _execute_balance_sheet_tool(
     data: dict[str, Any],
 ) -> ToolResult:
     doc_id, sheet_name = _get_document_meta(data)
-    currency = data.get("currency", "INR")
-    scale = Decimal(str(data.get("unit_scale", 1)))
+    currency = data.get("currency")
+    if not currency:
+        return ToolResult(
+            name=name,
+            value=None,
+            unit="unknown",
+            calculation_id=f"balance_sheet.{name}.v1",
+            status="unavailable",
+            reason="Missing currency in balance sheet data.",
+        )
+
+    scale_raw = data.get("unit_scale")
+    if scale_raw is None:
+        return ToolResult(
+            name=name,
+            value=None,
+            unit=currency,
+            calculation_id=f"balance_sheet.{name}.v1",
+            status="unavailable",
+            reason="Missing unit_scale in balance sheet data.",
+        )
+    scale = Decimal(str(scale_raw))
 
     assets = data.get("assets", {})
     liabilities = data.get("liabilities", {})
@@ -386,6 +433,16 @@ def _execute_balance_sheet_tool(
         )
 
     if name == "balance_sheet_verify_reconciliation":
+        if "total" not in assets or "total" not in liabilities or "total" not in equity:
+            return ToolResult(
+                name=name,
+                value=None,
+                unit=currency,
+                calculation_id="balance_sheet.balance_difference.v1",
+                status="unavailable",
+                reason="Missing total assets, liabilities, or equity for reconciliation check.",
+            )
+
         total_assets = Decimal(str(assets.get("total", 0)))
         total_liab = Decimal(str(liabilities.get("total", 0)))
         total_eq = Decimal(str(equity.get("total", 0)))
