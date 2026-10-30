@@ -131,7 +131,10 @@ def _verify(
             continue
         prefix = re.search(rf"({CURRENCY})\s*$", before)
         suffix = re.match(rf"\s*({CURRENCY})(?!\w)", after)
-        if prefix and before[: prefix.start()].rstrip().endswith(("-", "+", "−")):
+        # Reject a detached sign rather than reading the following digits as
+        # positive. Check both directly before the amount and before currency.
+        sign_context = before[: prefix.start()] if prefix else before
+        if sign_context.rstrip().endswith(("-", "+", "−")):
             issues.append(GuardIssue(raw, "Place the sign directly before the digits."))
             continue
         if re.match(r"\s*(?:[kKmMbB]\b|‰)", after):

@@ -214,3 +214,37 @@ def test_accounting_sign_does_not_round_under_decimal_context():
 @pytest.mark.parametrize("text", [None, 123, "x" * 20001, "9" * 129])
 def test_invalid_or_oversized_text_fails_closed(text):
     assert verify_numbers_in_text(text, [Decimal("5000")]) is False
+
+
+@pytest.mark.parametrize("sign", ["-", "−", "+"])
+@pytest.mark.parametrize("gap", [" ", "\t", "\u00a0"])
+@pytest.mark.parametrize(
+    "template",
+    [
+        "Net flow: {sign}{gap}5000.",
+        "Net flow: INR {sign}{gap}5000.",
+        "Net flow: {sign}{gap}INR 5000.",
+    ],
+)
+@pytest.mark.parametrize("value", [Decimal("5000"), Decimal("-5000")])
+def test_separated_signs_are_rejected_in_both_interfaces(sign, gap, template, value):
+    text = template.format(sign=sign, gap=gap)
+    assert verify_numbers_in_text(text, [value]) is False
+    detailed = verify_tool_results_text(text, [result(value)])
+    assert not detailed.valid
+    assert any("sign" in issue.reason.lower() for issue in detailed.issues)
+
+
+@pytest.mark.parametrize(
+    "text,value",
+    [
+        ("Net flow: -5000.", "-5000"),
+        ("Net flow: INR −5000.", "-5000"),
+        ("Net flow: +5000.", "5000"),
+        ("Net flow: (INR 5000).", "-5000"),
+    ],
+)
+def test_valid_signed_amounts_still_match_exactly(text, value):
+    amount = Decimal(value)
+    assert verify_numbers_in_text(text, [amount]) is True
+    assert verify_tool_results_text(text, [result(amount)]).valid
