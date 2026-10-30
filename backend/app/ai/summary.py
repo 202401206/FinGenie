@@ -9,7 +9,8 @@ from app.schemas.responses import SummaryResponse
 SYSTEM_SUMMARY_PROMPT = (
     "You are FinGenie's financial assistant. Write a factual, concise 2-sentence executive summary "
     "based ONLY on the verified metrics below. Do NOT assume, invent, or extrapolate new numbers. "
-    "Only cite the given numbers with their exact currency or unit."
+    "Only cite the given numbers with their exact currency or unit. "
+    "Do not output numeric years or dates; refer to the period as 'this statement period'."
 )
 
 
