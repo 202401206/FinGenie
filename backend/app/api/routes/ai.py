@@ -8,6 +8,11 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 
 from app.ai.chatbot import chat_with_workspace
+from app.ai.providers.groq_provider import (
+    GroqAPIError,
+    GroqConfigurationError,
+    GroqError,
+)
 from app.ai.summary import generate_summary
 from app.schemas.requests import ChatRequest
 from app.schemas.responses import ChatResponse, SummaryResponse
@@ -57,6 +62,53 @@ def get_workspace_data(workspace_id: UUID) -> dict[str, Any]:
     )
 
 
+def _handle_provider_error(exc: GroqError) -> HTTPException:
+    """Translates provider exceptions into contract-compliant FastAPI HTTPExceptions.
+
+    Ensures no raw API keys, upstream response bodies, or private financial content
+    leak into client errors.
+    """
+    if isinstance(exc, GroqConfigurationError):
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "provider_unavailable",
+                "message": "AI service is not configured. Please contact support.",
+            },
+        )
+    if isinstance(exc, GroqAPIError):
+        if exc.status_code == 429:
+            return HTTPException(
+                status_code=429,
+                detail={
+                    "code": "rate_limit_exceeded",
+                    "message": "AI rate limit reached. Please retry in a few moments.",
+                },
+            )
+        if exc.status_code in (503, 504):
+            return HTTPException(
+                status_code=503,
+                detail={
+                    "code": "provider_unavailable",
+                    "message": "AI service is temporarily unavailable. Please retry later.",
+                },
+            )
+        return HTTPException(
+            status_code=502,
+            detail={
+                "code": "ai_provider_error",
+                "message": "Upstream AI service encountered an error.",
+            },
+        )
+    return HTTPException(
+        status_code=502,
+        detail={
+            "code": "ai_provider_error",
+            "message": "AI service failed unexpectedly.",
+        },
+    )
+
+
 @router.post("/{workspace_id}/summary", response_model=SummaryResponse)
 async def get_summary_endpoint(workspace_id: UUID) -> SummaryResponse:
     """Generate an executive financial summary for the specified workspace."""
@@ -68,6 +120,8 @@ async def get_summary_endpoint(workspace_id: UUID) -> SummaryResponse:
             status_code=422,
             detail={"code": "invalid_workspace_data", "message": str(exc)},
         ) from exc
+    except GroqError as exc:
+        raise _handle_provider_error(exc) from exc
 
 
 @router.post("/{workspace_id}/chat", response_model=ChatResponse)
@@ -84,3 +138,5 @@ async def chat_endpoint(
             status_code=422,
             detail={"code": "invalid_chat_request", "message": str(exc)},
         ) from exc
+    except GroqError as exc:
+        raise _handle_provider_error(exc) from exc

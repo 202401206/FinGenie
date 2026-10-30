@@ -1,7 +1,10 @@
 """End-to-end API route tests for AI Summary and Chatbot endpoints."""
 
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
+from app.ai.providers.groq_provider import GroqAPIError, GroqConfigurationError
 from app.main import app
 
 BANK_WS = "20000000-0000-4000-8000-000000000001"
@@ -84,3 +87,80 @@ def test_post_chat_empty_message_422() -> None:
         )
 
     assert response.status_code == 422
+
+
+def test_post_chat_whitespace_message_422() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/workspaces/{BANK_WS}/chat",
+            json={"message": "   "},
+        )
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["detail"]["code"] == "invalid_chat_request"
+
+
+def test_post_chat_message_too_long_422() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/workspaces/{BANK_WS}/chat",
+            json={"message": "a" * 2001},
+        )
+
+    assert response.status_code == 422
+
+
+@patch("app.api.routes.ai.chat_with_workspace")
+def test_post_chat_rate_limit_error_429(mock_chat) -> None:
+    mock_chat.side_effect = GroqAPIError(status_code=429, message="Rate limit exceeded")
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/workspaces/{BANK_WS}/chat",
+            json={"message": "What is my cash flow?"},
+        )
+
+    assert response.status_code == 429
+    data = response.json()
+    assert data["detail"]["code"] == "rate_limit_exceeded"
+    assert "rate limit reached" in data["detail"]["message"].lower()
+
+
+@patch("app.api.routes.ai.chat_with_workspace")
+def test_post_chat_provider_unavailable_503(mock_chat) -> None:
+    mock_chat.side_effect = GroqAPIError(status_code=503, message="Groq outage")
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/workspaces/{BANK_WS}/chat",
+            json={"message": "What is my cash flow?"},
+        )
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["detail"]["code"] == "provider_unavailable"
+    assert "temporarily unavailable" in data["detail"]["message"].lower()
+
+
+@patch("app.api.routes.ai.chat_with_workspace")
+def test_post_chat_upstream_error_502(mock_chat) -> None:
+    mock_chat.side_effect = GroqAPIError(status_code=500, message="Internal Groq Error")
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/workspaces/{BANK_WS}/chat",
+            json={"message": "What is my cash flow?"},
+        )
+
+    assert response.status_code == 502
+    data = response.json()
+    assert data["detail"]["code"] == "ai_provider_error"
+
+
+@patch("app.api.routes.ai.generate_summary")
+def test_post_summary_configuration_error_503(mock_summary) -> None:
+    mock_summary.side_effect = GroqConfigurationError("Missing API key")
+    with TestClient(app) as client:
+        response = client.post(f"/api/workspaces/{BANK_WS}/summary")
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["detail"]["code"] == "provider_unavailable"
