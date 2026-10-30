@@ -1,16 +1,20 @@
 # FinGenie
 
 A semester team project for understanding financial documents through dashboards
-and an AI assistant. This repository is the foundation, not the application.
+and an AI assistant. Sprint 1 backend work has started.
 
-**Implemented:** a React title page and `GET /api/health`.
+**Implemented:** a React title page, public `GET /api/health`, authenticated
+`GET /api/me`, and the initial Supabase tables, ownership policies and private bucket.
+The backend also has user-scoped workspace/transaction read repositories for
+connecting the upcoming routes; see [database access](backend/app/db/README.md).
 **Planned:** CSV/XLSX upload, Python parsing, deterministic financial calculations,
 dashboards, summaries, chat and bank-statement projections. Personal users may
 upload bank statements; business users may also upload balance sheets.
 
 One monorepo (a repository containing both frontend and backend), one modular
 FastAPI server, exactly three development teams. Supabase will provide Auth,
-PostgreSQL and private file storage. No external service is connected yet.
+PostgreSQL and private file storage. See [Supabase setup](docs/supabase-setup.md)
+for this first backend work package and the remaining team assignments.
 
 ## Start here
 
@@ -38,8 +42,8 @@ npm run dev
 
 Open <http://localhost:5173>, <http://localhost:8000/docs>, and
 <http://localhost:8000/api/health>. The title page does not fetch the API yet.
-No dependency installation or runtime verification was performed when generating
-this scaffold. Run the checks in the setup guide after your manual installation.
+The health and identity endpoints have automated tests. Run the checks in the setup
+guide after your manual installation; `/api/me` additionally requires Supabase settings.
 
 ## Find your work
 
