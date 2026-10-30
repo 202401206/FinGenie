@@ -1,6 +1,7 @@
 # FinGenie — Number Guard
 
-**Prepared by:** S Srujan  
+**Prepared by:** S Srujan
+
 **Contribution:** AI summaries and numerical verification
 
 ## Purpose
