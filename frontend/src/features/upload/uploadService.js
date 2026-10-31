@@ -1,3 +1,4 @@
+
 import { apiRequest } from "../../services/api.js";
 
 // Keep demo mode enabled until the upload API and authentication are ready.
@@ -7,13 +8,27 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-export async function uploadBankStatement({ userType, file, accessToken }) {
+export async function uploadBankStatement({
+  bankName,
+  file,
+  accessToken,
+}) {
   if (!file) {
     throw new Error("Please select a file.");
   }
 
-  if (!["personal", "business"].includes(userType)) {
-    throw new Error("Please select a valid account type.");
+  if (!bankName?.trim()) {
+    throw new Error("Please enter the bank name.");
+  }
+
+  const fileName = file.name.toLowerCase();
+
+  if (!fileName.endsWith(".csv") && !fileName.endsWith(".xlsx")) {
+    throw new Error("Only CSV and XLSX files are supported.");
+  }
+
+  if (file.size === 0) {
+    throw new Error("The selected file is empty.");
   }
 
   if (USE_MOCK_UPLOAD) {
@@ -24,8 +39,8 @@ export async function uploadBankStatement({ userType, file, accessToken }) {
       demo: true,
       workspace: {
         id: "demo-workspace",
-        name: "Demo bank statement",
-        user_type: userType,
+        name: `${bankName.trim()} statement`,
+        bank_name: bankName.trim(),
         document_type: "bank_statement",
         created_at: new Date().toISOString(),
       },
@@ -42,11 +57,12 @@ export async function uploadBankStatement({ userType, file, accessToken }) {
 
   const formData = new FormData();
 
-  formData.append("user_type", userType);
+  formData.append("bank_name", bankName.trim());
   formData.append("document_type", "bank_statement");
   formData.append("file", file);
 
-  // Do not manually set Content-Type; the browser supplies the multipart boundary.
+  // Do not manually set Content-Type.
+  // The browser supplies the multipart boundary.
   return apiRequest("/upload", {
     method: "POST",
     headers: {

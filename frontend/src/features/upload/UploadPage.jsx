@@ -1,8 +1,110 @@
+
 import { useRef, useState } from "react";
 import { uploadBankStatement } from "./uploadService.js";
 import "./UploadPage.css";
 
 const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
+
+const BANK_GROUPS = [
+  {
+    label: "Public sector banks",
+    banks: [
+      "State Bank of India",
+      "Bank of Baroda",
+      "Punjab National Bank",
+      "Canara Bank",
+      "Union Bank of India",
+      "Bank of India",
+      "Indian Bank",
+      "Central Bank of India",
+      "Indian Overseas Bank",
+      "UCO Bank",
+      "Bank of Maharashtra",
+      "Punjab & Sind Bank",
+    ],
+  },
+  {
+    label: "Private sector banks",
+    banks: [
+      "HDFC Bank",
+      "ICICI Bank",
+      "Axis Bank",
+      "Kotak Mahindra Bank",
+      "IndusInd Bank",
+      "YES Bank",
+      "IDFC FIRST Bank",
+      "Federal Bank",
+      "RBL Bank",
+      "Bandhan Bank",
+      "South Indian Bank",
+      "Jammu & Kashmir Bank",
+      "Karnataka Bank",
+      "City Union Bank",
+      "Karur Vysya Bank",
+      "Tamilnad Mercantile Bank",
+      "DCB Bank",
+      "CSB Bank",
+    ],
+  },
+  {
+    label: "Small finance banks",
+    banks: [
+      "AU Small Finance Bank",
+      "Equitas Small Finance Bank",
+      "Ujjivan Small Finance Bank",
+      "Jana Small Finance Bank",
+      "Suryoday Small Finance Bank",
+      "ESAF Small Finance Bank",
+    ],
+  },
+];
+
+const RECENT_ANALYSES = [
+  {
+    id: "demo-analysis-1",
+    title: "Monthly spending review",
+    bankName: "Sample Bank",
+    period: "Demo example",
+  },
+  {
+    id: "demo-analysis-2",
+    title: "Financial overview",
+    bankName: "Sample Bank",
+    period: "Demo example",
+  },
+];
+
+function getDefaultBankSelection() {
+  try {
+    const savedSettings = JSON.parse(
+      localStorage.getItem("fingenie-settings") || "{}",
+    );
+
+    const savedBank = savedSettings.bankName?.trim() || "";
+    const allBanks = BANK_GROUPS.flatMap((group) => group.banks);
+
+    if (allBanks.includes(savedBank)) {
+      return {
+        bankSelection: savedBank,
+        otherBankName: "",
+      };
+    }
+
+    if (savedBank) {
+      return {
+        bankSelection: "other",
+        otherBankName: savedBank,
+      };
+    }
+  } catch {
+    // Use an empty selection if saved preferences cannot be read.
+  }
+
+  return {
+    bankSelection: "",
+    otherBankName: "",
+  };
+}
 
 function validateFile(file) {
   if (!file) {
@@ -34,34 +136,59 @@ function formatFileSize(bytes) {
 
 export default function UploadPage() {
   const fileInputRef = useRef(null);
-  const [userType, setUserType] = useState("personal");
+
+  const [bankState, setBankState] = useState(getDefaultBankSelection);
+
+  const { bankSelection, otherBankName } = bankState;
+
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+  const [workflowMessage, setWorkflowMessage] = useState("");
+
+  const bankName =
+    bankSelection === "other" ? otherBankName.trim() : bankSelection.trim();
+
+  function resetMessages() {
+    setError("");
+    setResult(null);
+    setWorkflowMessage("");
+    setStatus("idle");
+  }
+
+  function handleBankSelectionChange(event) {
+    setBankState((current) => ({
+      ...current,
+      bankSelection: event.target.value,
+      otherBankName:
+        event.target.value === "other" ? current.otherBankName : "",
+    }));
+
+    resetMessages();
+  }
+
+  function handleOtherBankChange(event) {
+    setBankState((current) => ({
+      ...current,
+      otherBankName: event.target.value,
+    }));
+
+    resetMessages();
+  }
 
   function handleFileChange(event) {
     const selectedFile = event.target.files?.[0] ?? null;
 
     setFile(selectedFile);
-    setError("");
-    setResult(null);
-    setStatus("idle");
-    event.target.value = "";
-  }
+    resetMessages();
 
-  function handleUserTypeChange(type) {
-    setUserType(type);
-    setError("");
-    setResult(null);
-    setStatus("idle");
+    event.target.value = "";
   }
 
   function handleRemoveFile() {
     setFile(null);
-    setError("");
-    setResult(null);
-    setStatus("idle");
+    resetMessages();
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -70,6 +197,18 @@ export default function UploadPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (!bankName) {
+      setError("Please select your bank.");
+      setStatus("error");
+      return;
+    }
+
+    if (!file) {
+      setError("Please select a bank statement first.");
+      setStatus("error");
+      return;
+    }
 
     const validationError = validateFile(file);
 
@@ -81,11 +220,12 @@ export default function UploadPage() {
 
     setError("");
     setResult(null);
+    setWorkflowMessage("");
     setStatus("uploading");
 
     try {
       const response = await uploadBankStatement({
-        userType,
+        bankName,
         file,
       });
 
@@ -97,7 +237,23 @@ export default function UploadPage() {
           ? uploadError.message
           : "Something went wrong. Please try again.",
       );
+
       setStatus("error");
+    }
+  }
+
+  function handleImportStatement() {
+    setWorkflowMessage(
+      `Demo mode: "${file?.name}" is selected for import into your financial workspace. Actual importing and combining data will be connected when the backend API is ready.`,
+    );
+  }
+
+  function handleCancelAndStartOver() {
+    setFile(null);
+    resetMessages();
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
   }
 
@@ -127,18 +283,18 @@ export default function UploadPage() {
         </h1>
 
         <p>
-          Upload a bank statement to get started with your financial workspace.
-          Your analysis and insights will follow as those features become
-          available.
+          Upload a bank statement to create or update your financial analysis.
+          Your transactions and insights will be available in your dashboard
+          when those features are ready.
         </p>
       </section>
 
       <section className="fg-upload-card">
         <div className="fg-card-heading">
           <div>
-            <span className="fg-step-label">STEP 01</span>
+            <span className="fg-step-label">GET STARTED</span>
             <h2>Upload a bank statement</h2>
-            <p>Choose your account type and select your file.</p>
+            <p>Select your bank and choose the statement you want to analyze.</p>
           </div>
 
           <div className="fg-document-icon" aria-hidden="true">
@@ -155,69 +311,49 @@ export default function UploadPage() {
         </div>
 
         <form onSubmit={handleSubmit} noValidate>
-          <fieldset className="fg-fieldset">
-            <legend>Who is this statement for?</legend>
+          <div className="fg-bank-section">
+            <label className="fg-section-label" htmlFor="bank-name">
+              Select your bank
+            </label>
 
-            <div className="fg-account-options">
-              <button
-                type="button"
-                className={`fg-account-option ${
-                  userType === "personal" ? "is-selected" : ""
-                }`}
-                aria-pressed={userType === "personal"}
-                onClick={() => handleUserTypeChange("personal")}
-                disabled={status === "uploading"}
-              >
-                <span className="fg-option-icon" aria-hidden="true">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                  >
-                    <circle cx="12" cy="8" r="4" />
-                    <path d="M4 21a8 8 0 0 1 16 0" />
-                  </svg>
-                </span>
+            <select
+              id="bank-name"
+              className="fg-bank-select"
+              value={bankSelection}
+              onChange={handleBankSelectionChange}
+              disabled={status === "uploading" || status === "success"}
+            >
+              <option value="">Choose your bank</option>
 
-                <span className="fg-option-copy">
-                  <strong>Personal</strong>
-                  <span>Your personal finances</span>
-                </span>
+              {BANK_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.banks.map((bank) => (
+                    <option key={bank} value={bank}>
+                      {bank}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
 
-                <span className="fg-radio" aria-hidden="true" />
-              </button>
+              <option value="other">Other bank / Not listed</option>
+            </select>
 
-              <button
-                type="button"
-                className={`fg-account-option ${
-                  userType === "business" ? "is-selected" : ""
-                }`}
-                aria-pressed={userType === "business"}
-                onClick={() => handleUserTypeChange("business")}
-                disabled={status === "uploading"}
-              >
-                <span className="fg-option-icon" aria-hidden="true">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                  >
-                    <rect x="3" y="7" width="18" height="14" rx="2" />
-                    <path d="M8 7V4h8v3M3 12h18M10 12v2h4v-2" />
-                  </svg>
-                </span>
+            {bankSelection === "other" && (
+              <input
+                className="fg-bank-input"
+                type="text"
+                value={otherBankName}
+                onChange={handleOtherBankChange}
+                placeholder="Enter your bank name"
+                aria-label="Other bank name"
+                disabled={status === "uploading" || status === "success"}
+              />
+            )}
 
-                <span className="fg-option-copy">
-                  <strong>Business</strong>
-                  <span>Business bank finances</span>
-                </span>
-
-                <span className="fg-radio" aria-hidden="true" />
-              </button>
-            </div>
-          </fieldset>
+            <p className="fg-format-help">
+              Select the bank from which this statement was issued.
+            </p>
+          </div>
 
           <div className="fg-file-section">
             <label className="fg-section-label" htmlFor="bank-statement-file">
@@ -243,7 +379,7 @@ export default function UploadPage() {
               onDrop={(event) => {
                 event.preventDefault();
 
-                if (status === "uploading") return;
+                if (status === "uploading" || status === "success") return;
 
                 const droppedFile = event.dataTransfer.files?.[0] ?? null;
                 const validationError = validateFile(droppedFile);
@@ -252,14 +388,13 @@ export default function UploadPage() {
                   setFile(droppedFile);
                   setError(validationError);
                   setResult(null);
+                  setWorkflowMessage("");
                   setStatus("error");
                   return;
                 }
 
                 setFile(droppedFile);
-                setError("");
-                setResult(null);
-                setStatus("idle");
+                resetMessages();
               }}
             >
               {file ? (
@@ -336,38 +471,78 @@ export default function UploadPage() {
           )}
 
           {status === "success" && result && (
-            <div className="fg-message fg-message-success" role="status">
-              <strong>
-                {result.demo
-                  ? "Upload flow tested successfully"
-                  : "Statement uploaded successfully"}
-              </strong>
+            <>
+              <div className="fg-message fg-message-success" role="status">
+                <strong>
+                  {result.demo
+                    ? "Upload flow tested successfully"
+                    : "Statement uploaded successfully"}
+                </strong>
 
-              <span>
-                {result.demo
-                  ? "Demo mode is enabled. No file was sent to a server or stored."
-                  : "Your workspace has been created."}
-              </span>
-            </div>
+                <span>
+                  {result.demo
+                    ? "Demo mode is enabled. No file was sent to a server or stored."
+                    : "Your statement was uploaded successfully."}
+                </span>
+              </div>
+
+              <section className="fg-import-panel">
+                <div className="fg-import-heading">
+                  <span className="fg-step-label">NEXT STEP</span>
+                  <h3>What would you like to do next?</h3>
+                  <p>
+                    Import this statement into your financial workspace or
+                    cancel and choose another document.
+                  </p>
+                </div>
+
+                <div className="fg-import-actions">
+                  <button
+                    type="button"
+                    className="fg-import-button"
+                    onClick={handleImportStatement}
+                  >
+                    Import statement
+                    <span aria-hidden="true">→</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="fg-cancel-button"
+                    onClick={handleCancelAndStartOver}
+                  >
+                    Cancel and upload a new document
+                  </button>
+                </div>
+
+                {workflowMessage && (
+                  <div className="fg-workflow-message" role="status">
+                    {workflowMessage}
+                  </div>
+                )}
+              </section>
+            </>
           )}
 
-          <button
-            type="submit"
-            className="fg-submit-button"
-            disabled={status === "uploading"}
-          >
-            {status === "uploading" ? (
-              <>
-                <span className="fg-spinner" aria-hidden="true" />
-                Processing…
-              </>
-            ) : (
-              <>
-                Continue
-                <span aria-hidden="true">→</span>
-              </>
-            )}
-          </button>
+          {status !== "success" && (
+            <button
+              type="submit"
+              className="fg-submit-button"
+              disabled={status === "uploading"}
+            >
+              {status === "uploading" ? (
+                <>
+                  <span className="fg-spinner" aria-hidden="true" />
+                  Processing…
+                </>
+              ) : (
+                <>
+                  Continue
+                  <span aria-hidden="true">→</span>
+                </>
+              )}
+            </button>
+          )}
 
           <p className="fg-privacy-note">
             <svg
@@ -380,9 +555,63 @@ export default function UploadPage() {
               <rect x="4" y="10" width="16" height="11" rx="2" />
               <path d="M8 10V7a4 4 0 1 1 8 0v3" />
             </svg>
-            Only use sample or test statements while the upload is in demo mode.
+            Only use sample or test statements while upload is in demo mode.
           </p>
         </form>
+      </section>
+
+      <section className="fg-recent-section">
+        <div className="fg-recent-heading">
+          <div>
+            <span className="fg-step-label">YOUR WORKSPACE</span>
+            <h2>Recent financial analyses</h2>
+            <p>
+              Continue from your previously created financial analyses.
+            </p>
+          </div>
+        </div>
+
+        <div className="fg-recent-list">
+          {RECENT_ANALYSES.map((analysis) => (
+            <article className="fg-analysis-card" key={analysis.id}>
+              <div className="fg-analysis-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                >
+                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+                  <path d="M13 2v7h7M8 14h8M8 18h8" />
+                </svg>
+              </div>
+
+              <div className="fg-analysis-details">
+                <strong>{analysis.title}</strong>
+                <span>
+                  {analysis.bankName} · {analysis.period}
+                </span>
+              </div>
+
+              <span className="fg-demo-badge">Demo</span>
+
+              <button
+                type="button"
+                className="fg-dashboard-button"
+                disabled
+                title="Dashboard will be available later"
+              >
+                Open dashboard
+                <span aria-hidden="true">→</span>
+              </button>
+            </article>
+          ))}
+        </div>
+
+        <p className="fg-recent-note">
+          These are sample entries for preview only. Your actual analyses will
+          appear here after the backend integration is ready.
+        </p>
       </section>
 
       <footer className="fg-footer">
