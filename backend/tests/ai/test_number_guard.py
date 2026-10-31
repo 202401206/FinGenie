@@ -248,3 +248,11 @@ def test_valid_signed_amounts_still_match_exactly(text, value):
     amount = Decimal(value)
     assert verify_numbers_in_text(text, [amount]) is True
     assert verify_tool_results_text(text, [result(amount)]).valid
+
+
+@pytest.mark.parametrize(
+    "text,expected", [("- Total credits: INR 5000", True), ("- 5000 INR", False)]
+)
+def test_bullet_policy_preserves_sign_safety(text, expected):
+    assert verify_numbers_in_text(text, [Decimal("5000")]) is expected
+    assert verify_tool_results_text(text, [result()]).valid is expected

@@ -38,8 +38,8 @@ On Windows, use `py -m venv .venv` and `.\.venv\Scripts\Activate.ps1` to create
 and activate the environment. The checker and its tests need no API key.
 Run `python -m pytest -q` from `backend` for the complete backend suite.
 
-Verified on 30 October 2026: **141 guard cases passed**, **142 total backend
-cases passed** on the main-based branch, and Ruff passed. Parameterized inputs
+Verified on 31 October 2026: **143 guard cases passed**, **212 total backend
+cases passed** after merging the current main branch, and Ruff passed. Parameterized inputs
 count as separate cases. The suite emitted a non-failing Starlette/httpx
 deprecation warning.
 
@@ -113,6 +113,11 @@ mapped to a currency. Percentages require unit `percent` in unit-aware mode;
 ratios are not converted. Dates and list numbering are not exempted from checks.
 Empty answers and text longer than 20,000 characters are rejected.
 
+For dash bullets, include a label before the amount: `- Total credits: INR 5000`
+is accepted. A numeric-only bullet such as `- 5000 INR` is rejected because the
+dash is indistinguishable from a detached negative sign. Do not strip such signs
+before checking; doing so could turn a negative claim into a positive amount.
+
 ## Integration ownership
 
 The Number Guard only returns a checking decision. The AI integration layer
@@ -128,8 +133,9 @@ Calculate results → Generate draft → Check draft
 
 The final error code is `ai_validation_failed`, as requested in the team guide.
 This standalone module does not raise HTTP errors or make provider calls.
-Companion branch `feat/number-guard-integration` contains reviewable wiring,
-retry/error handling and live demonstrations on top of the AI branch.
+Local, unpushed branch `feat/number-guard-integration` contains experimental
+wiring, retry/error handling and live demonstrations on top of the AI branch.
+The shared AI branch owns the final integration.
 
 ## Limits
 
