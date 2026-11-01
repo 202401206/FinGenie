@@ -7,4 +7,6 @@ No service layer is necessary for the health endpoint.
 Private source helpers now live in `source_storage.py`, with internal models,
 safe errors and an authenticated dependency. See [source upload integration](source-uploads.md)
 for their interface, the required reservation migration and their limitations.
-The complete upload orchestration and atomic parsed-data save are still upcoming work.
+Atomic parsed-data saving now has a separate authenticated repository; see
+[parsed persistence](../db/parsed-documents.md). Complete upload orchestration and
+failure recovery are still upcoming work.

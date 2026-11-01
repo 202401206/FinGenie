@@ -66,8 +66,11 @@ once routes, parsers and upload persistence are connected.
 `SourceReservationRepository` in `repositories/source_uploads.py` now reserves the
 owned workspace/document pair through one user-scoped RPC. Its separate migration
 and receipt/failure semantics are covered by the [source upload guide](../services/source-uploads.md).
-Atomic parsed JSON/transaction persistence is still upcoming work. No migration
-is required for the read methods above. Do not introduce a generic repository framework.
+`ParsedDocumentRepository` now saves bank-statement JSON, metadata and transaction
+rows atomically through a separate RPC. See [parsed-data persistence](parsed-documents.md)
+for input validation, exact JSON, migration requirements and safe failure handling.
+Full upload orchestration/recovery remains upcoming work. No migration is required
+for the read methods above. Do not introduce a generic repository framework.
 
 Data API references: [pagination and exact counts](https://docs.postgrest.org/en/stable/references/api/pagination_count.html)
 and [Supabase data security](https://supabase.com/docs/guides/database/secure-data).

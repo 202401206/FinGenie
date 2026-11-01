@@ -17,12 +17,9 @@ class SourceKind(StrEnum):
 
     @property
     def content_type(self) -> str:
-        return {
-            SourceKind.CSV: "text/csv",
-            SourceKind.XLSX: (
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
-        }[self]
+        if self == SourceKind.CSV:
+            return "text/csv"
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 class SourceAttempt(BaseModel):
@@ -54,11 +51,15 @@ class SourceAttempt(BaseModel):
     def sanitize_filename(cls, value: object) -> object:
         if not isinstance(value, str):
             return value
-        # Strip either platform's directory components. Names never become paths.
+        # Keep the filename, not the directory from someone's computer.
         basename = value.replace("\\", "/").rsplit("/", 1)[-1]
-        basename = "".join(
-            "_" if ord(char) < 32 or ord(char) == 127 else char for char in basename
-        ).strip()
+        cleaned_characters = []
+        for character in basename:
+            if ord(character) < 32 or ord(character) == 127:
+                cleaned_characters.append("_")
+            else:
+                cleaned_characters.append(character)
+        basename = "".join(cleaned_characters).strip()
         if basename in ("", ".", ".."):
             raise ValueError("A source filename is required.")
         return basename

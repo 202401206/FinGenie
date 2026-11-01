@@ -135,3 +135,13 @@ executed locally using embedded PostgreSQL and a minimal Supabase schema scaffol
 fixture rows rolled back. Full Docker Supabase replay and actual Storage file
 operations were not exercised in that local SQL test. Final parsed-data writes,
 metadata compensation and complete upload orchestration remain upcoming work.
+
+## Follow-up: atomic parsed-data save
+
+The persistence branch now also prepares `finalize_bank_statement` and its
+authenticated Python repository. It saves validated bank JSON, document metadata
+and transaction rows atomically after confirming the registered source. See
+[parsed-data persistence](../backend/app/db/parsed-documents.md). The latest local
+suite has 160 passing Python tests; all three rollback SQL suites pass locally.
+Neither new migration has been deployed to the shared project by this work.
+Complete upload orchestration, reconciliation and failure recovery are still pending.

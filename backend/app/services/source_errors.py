@@ -22,6 +22,12 @@ class SourceTooLarge(Exception):
 class SourceOutcomeUnknown(SourceUnavailable):
     """A write may have succeeded. Reconcile the same IDs before any retry/cleanup."""
 
-    def __init__(self, operation: Literal["reservation", "upload", "removal"]) -> None:
+    def __init__(
+        self, operation: Literal["reservation", "upload", "removal", "finalization"]
+    ) -> None:
         self.operation = operation
         super().__init__("The source operation outcome could not be confirmed.")
+
+
+class ParsedDocumentRejected(Exception):
+    """Parsed data did not meet the save contract; no partial save is allowed."""
