@@ -106,7 +106,8 @@ The ESLint config uses the [flat configuration format](https://eslint.org/docs/l
 No Supabase, LangChain/LangGraph, Ollama, Groq, RapidFuzz, multipart or rate-limiter
 packages are needed to start this foundation. Add them with affected-team review
 when implementing the corresponding feature, then document their configuration.
-No service accounts or keys are required for health or the title page.
+No service accounts or keys are required for health or the title page. `GET /api/me`
+uses HTTPX to verify tokens; configure it using [Supabase setup](supabase-setup.md).
 
 ## 5. Create local environment files
 
@@ -130,10 +131,11 @@ The defaults work locally. Backend settings use the `FINGENIE_` prefix and load
 of exact browser origins. See [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/).
 
 Frontend uses `VITE_API_BASE_URL=http://localhost:8000/api`. Every `VITE_` value
-is public browser code. Leave Supabase placeholders blank until integration.
-Only a public/publishable Supabase key may eventually go there; secret/service-role
+is public browser code. Leave frontend Supabase placeholders blank until auth UI integration.
+Only a public/publishable Supabase key may go there; secret/service-role
 keys and LLM keys stay server-side. Never commit `.env`. Restart Vite after editing
-its environment file. There is no Supabase client or AI config code yet.
+its environment file. Backend Supabase Auth configuration is documented separately;
+there is no frontend Supabase client or AI config code yet.
 
 ## 6. Run the backend
 
@@ -165,7 +167,8 @@ curl http://localhost:8000/api/health
 ```
 
 Expected JSON: `{"status":"ok","service":"fingenie-api"}`. This checks the app,
-not Supabase, authentication or AI. Other planned endpoints return 404 for now.
+not Supabase, authentication or AI. `/api/me` requires a valid token. Other planned
+endpoints return 404 for now.
 
 ## 7. Run the frontend
 
@@ -189,8 +192,9 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
-pytest checks the health status and response using an in-process client, without
-requiring a running server. Ruff checks common errors/import ordering, then formatting.
+pytest checks health, auth status/error handling, user isolation and configuration
+using an in-process client and mocked Auth calls, without live credentials or a
+running server. Ruff checks common errors/import ordering, then formatting.
 To format Python deliberately, use `python -m ruff format .`.
 
 From `frontend/`:
@@ -239,7 +243,7 @@ dependencies there rather than manually editing an existing lock artifact.
 | Backend port 8000 in use | Stop the old server or choose another port and update `VITE_API_BASE_URL`, then restart Vite. |
 | Browser reports CORS error | Match scheme, host and port exactly in `FINGENIE_CORS_ORIGINS`; restart FastAPI. CORS is not auth. |
 | `.env` changes ignored | Use the right directory/prefix and restart the relevant server. Check the file is not named `.env.txt`. |
-| Planned endpoint returns 404 | Expected: only `/api/health` exists. Consult the sprint plan. |
+| Planned endpoint returns 404 | Only `/api/health` and `/api/me` exist. Consult the sprint plan. |
 | XLSX import fails in future parser work | Ensure OpenPyXL is installed in the active environment; parsing is not implemented now. |
 | Linux Python cannot create a venv | Install your OS's Python venv support manually, then repeat step 2. |
 

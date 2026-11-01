@@ -2,7 +2,7 @@
 
 A contract is an agreed data shape at a team boundary. These documents let teams
 work independently. They do not implement parsers, schemas or planned endpoints.
-Only `GET /api/health` is currently live. Everything else below is a **proposal for
+`GET /api/health` and `GET /api/me` are live. The document/analysis shapes below are a **proposal for
 affected-team review**, based on the supplied brainstorming PDF and user request.
 
 - [Endpoint plan and payloads](api/README.md)

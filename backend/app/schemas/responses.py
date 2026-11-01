@@ -1,6 +1,7 @@
 """Response models for implemented endpoints."""
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +9,10 @@ from pydantic import BaseModel, Field
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     service: Literal["fingenie-api"] = "fingenie-api"
+
+
+class CurrentUser(BaseModel):
+    id: UUID
 
 
 class SourceRefModel(BaseModel):

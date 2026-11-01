@@ -4,8 +4,10 @@ The frontend is a React/Vite browser app. A single FastAPI backend contains all
 Python code, including analysis and AI. Modules are folders with a focused purpose,
 not independently deployed services.
 
-Current flow: `React title page` and, separately, `GET /api/health -> health JSON`.
-The health response is a liveness check: it does not promise database readiness.
+Current flow: `React title page`, public `GET /api/health -> health JSON`, and
+`GET /api/me -> Supabase Auth -> verified user UUID`. The health response is a
+liveness check: it does not promise database readiness. Supabase's initial tables,
+ownership policies and private bucket exist; upload/persistence services are next.
 
 Planned flow:
 
@@ -26,9 +28,9 @@ uses bearer tokens, so credentialed cookies are not enabled.
 ## Module boundaries
 
 - `api/`: HTTP routing, request/response models and status codes.
-- `core/`: settings; security and exception handling will be added here later.
+- `core/`: settings and the Supabase bearer-token verification dependency.
 - `schemas/`: Pydantic models for shared Python data validation. Only basic enums,
-  a document context model and the health response exist now.
+  a document context model, health response and current-user response exist now.
 - `services/`: later coordinates parsing, persistence, analysis and AI.
 - `parsers/`: later turns CSV/XLSX into standardized JSON. Check inputs before
   parsing and validate outputs afterward. Never silently discard unknown fields.
