@@ -95,14 +95,18 @@ missing RPC is a configuration failure instead. Neither path returns upstream SQ
 details. A timeout, 5xx or invalid success receipt is not evidence of rollback.
 There are no automatic retries or Storage deletions in this repository.
 
-Full failed-state handling, metadata retention/release, owned reconciliation reads
-and the complete parser/upload/read integration remain the final planned work
-package. Do not delete a source just because finalization returned a conflict or
-an uncertain response; a previous request may already have completed.
+The [recovery service](../services/upload-recovery.md) now handles failed state,
+owned reconciliation and controlled metadata release. Its follow-up migration
+also coordinates finalization with cancellation through a shared transaction
+lock. Public parser/upload/read integration remains with the API/parser owners.
+Do not delete a source just because finalization returned a conflict or an
+uncertain response; a previous request may already have completed.
 
 ## Checks
 
-- The Python suite has 160 passing tests, including 37 new save-boundary cases.
+- At this save milestone, the Python suite had 160 passing tests, including 37
+  new save-boundary cases. The [current test guide](../../../supabase/tests/README.md)
+  includes the later recovery/component checks.
 - Existing authentication, read and Storage tests remain unchanged and passing.
 - `supabase/tests/parsed_documents.sql` checks rollback after a later invalid row,
   ownership, missing source files, repeats, existing rows, failed status, exact

@@ -144,4 +144,20 @@ and transaction rows atomically after confirming the registered source. See
 [parsed-data persistence](../backend/app/db/parsed-documents.md). The latest local
 suite has 160 passing Python tests; all three rollback SQL suites pass locally.
 Neither new migration has been deployed to the shared project by this work.
-Complete upload orchestration, reconciliation and failure recovery are still pending.
+The API/parser owners still need to connect the complete public upload workflow.
+
+## Follow-up: interrupted upload recovery
+
+The final persistence work package adds
+[upload recovery](../backend/app/services/upload-recovery.md), a cancellation guard
+for late writes, and a reproducible [local SQL/component test runner](../supabase/tests/README.md).
+The full current suite has 218 passing Python tests, including eight component
+integration cases. Four rollback SQL suites pass locally. Older counts above
+describe the checks at those earlier milestones.
+
+`20261101190235_upload_recovery.sql` is prepared locally. It and the earlier
+reservation/finalization migrations require review/application before hosted use.
+No hosted migration, advisor run against the new schema, real Storage operation,
+Docker replay or browser upload was performed for this package. Local SQL checks
+cover grants, RLS, anonymous rejection, cancellation and rollback. A hosted advisor
+check and the live API/parser/two-user demo remain deployment/integration checks.

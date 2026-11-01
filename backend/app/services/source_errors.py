@@ -23,7 +23,10 @@ class SourceOutcomeUnknown(SourceUnavailable):
     """A write may have succeeded. Reconcile the same IDs before any retry/cleanup."""
 
     def __init__(
-        self, operation: Literal["reservation", "upload", "removal", "finalization"]
+        self,
+        operation: Literal[
+            "reservation", "upload", "removal", "finalization", "recovery"
+        ],
     ) -> None:
         self.operation = operation
         super().__init__("The source operation outcome could not be confirmed.")

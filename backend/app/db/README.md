@@ -69,7 +69,10 @@ and receipt/failure semantics are covered by the [source upload guide](../servic
 `ParsedDocumentRepository` now saves bank-statement JSON, metadata and transaction
 rows atomically through a separate RPC. See [parsed-data persistence](parsed-documents.md)
 for input validation, exact JSON, migration requirements and safe failure handling.
-Full upload orchestration/recovery remains upcoming work. No migration is required
+`UploadRecoveryRepository` and its service now reconcile failed attempts before
+controlled cleanup. See [upload recovery](../services/upload-recovery.md) and the
+[local component/SQL tests](../../../supabase/tests/README.md). Public routes and
+the real parser still need integration by their owners. No migration is required
 for the read methods above. Do not introduce a generic repository framework.
 
 Data API references: [pagination and exact counts](https://docs.postgrest.org/en/stable/references/api/pagination_count.html)

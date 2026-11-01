@@ -25,7 +25,8 @@ them. Source files stay in the existing private `financial-documents` bucket.
 6. Use `ParsedDocumentRepository.finalize` through the authenticated dependency in
    `app.db.dependencies` to save parsed JSON and transaction rows together. See
    [parsed persistence](../db/parsed-documents.md). Return 201 only after this and
-   the source upload succeed. Complete orchestration/recovery is still pending.
+   the source upload succeed. Use the [recovery service](upload-recovery.md) when
+   this attempt fails; the API owner still implements the public orchestration.
 
 The new RPC migration must be reviewed and applied through the team's normal
 migration workflow before using this against hosted Supabase. The initial migration
@@ -69,11 +70,10 @@ Storage policy authorizes the owner's prefix. It does not delete document/worksp
 rows. True means the exact removed object was returned. False means no removed
 object was returned; do not use it as proof that storage is empty or authorized.
 
-This is a removal primitive, not a complete compensation/reconciliation service.
-Call it only after deciding that this exact attempt should be discarded and no
-save/finalization is still in progress. The next persistence/integration changes
-must coordinate failure state, metadata release/retention and concurrent attempts.
-There is no new public deletion endpoint or automatic metadata deletion.
+This is a removal primitive. The [recovery service](upload-recovery.md) now makes
+the database decision and coordinates failed state and metadata release around
+it. Use that service for upload failures so cleanup cannot discard a confirmed
+save. There is no public deletion endpoint or automatic background cleanup.
 
 | Failure | Meaning / caller action |
 | --- | --- |
@@ -88,7 +88,8 @@ Timeouts, 5xx responses and malformed successful write receipts are uncertain.
 No automatic retry, deletion or success is reported in those cases. The caller
 has the original attempt UUIDs for a future ownership-scoped reconciliation lookup.
 Database metadata and Storage bytes are separate systems: one SQL transaction
-cannot roll back an HTTP file upload.
+cannot roll back an HTTP file upload. Recovery is now available for explicit
+reconciliation of the original attempt, rather than blindly retrying a write.
 
 ## Verification
 
@@ -99,11 +100,12 @@ cannot roll back an HTTP file upload.
 - `supabase/tests/source_reservations.sql`: real SQL role checks, ownership,
   immutable IDs and rollback of the first insert when the second insert fails.
 
-The Python tests use synthetic HTTP responses. Both SQL suites were also executed
-in a local embedded PostgreSQL engine with a minimal Supabase auth/storage test
-scaffold. This checks SQL/transaction/RLS behavior without hosted changes. It does
-not replace a hosted Storage API test, a full Docker Supabase replay, or a complete
-two-user upload/persist/read integration demonstration.
+The original helper tests use synthetic HTTP responses. The follow-up
+[component and SQL runner](../../../supabase/tests/README.md) now joins the actual
+Python helpers to the real migrations/RLS in embedded PostgreSQL. This checks
+reservation, save, reads and recovery without hosted changes. Auth/Storage HTTP
+responses and bytes are synthetic. It does not replace real Storage API testing,
+full Docker Supabase replay or the live two-user API/parser/browser demonstration.
 
 References: [standard uploads](https://supabase.com/docs/guides/storage/uploads/standard-uploads),
 [Storage errors](https://supabase.com/docs/guides/storage/debugging/error-codes),
