@@ -121,3 +121,17 @@ Foreign keys currently restrict parent deletion. Before adding deletion endpoint
 agree retention and cleanup: deleting metadata alone never removes Storage bytes.
 Frontend owns signup/login UI and session refresh. AI + Analysis owns calculations.
 Review the new `/api/me` contract with Frontend before integrating it.
+
+## Follow-up: source metadata and private files
+
+The persistence branch adds a local `reserve_source_upload` migration and
+request-scoped Storage upload/removal helpers. See the
+[source upload integration guide](../backend/app/services/source-uploads.md).
+Review/apply the new migration separately before live use; this work does not
+reapply the initial migration or alter hosted bucket/Auth settings.
+
+The updated Python suite has 123 passing tests. Both SQL ownership scripts were
+executed locally using embedded PostgreSQL and a minimal Supabase schema scaffold;
+fixture rows rolled back. Full Docker Supabase replay and actual Storage file
+operations were not exercised in that local SQL test. Final parsed-data writes,
+metadata compensation and complete upload orchestration remain upcoming work.
