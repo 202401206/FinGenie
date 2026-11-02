@@ -427,12 +427,18 @@ def _execute_balance_sheet_tool(
             return _metric_dict_to_tool_result(
                 name, balance_sheet_kpis.calculate_current_ratio(data)
             )
-        if name == "balance_sheet_verify_reconciliation" and hasattr(
-            balance_sheet_kpis, "verify_balance_sheet_reconciliation"
-        ):
-            return _metric_dict_to_tool_result(
-                name, balance_sheet_kpis.verify_balance_sheet_reconciliation(data)
+        if name == "balance_sheet_verify_reconciliation":
+            fn = getattr(
+                balance_sheet_kpis,
+                "calculate_balance_difference",
+                getattr(
+                    balance_sheet_kpis,
+                    "verify_balance_sheet_reconciliation",
+                    None,
+                ),
             )
+            if fn is not None:
+                return _metric_dict_to_tool_result(name, fn(data))
 
     # 2. Internal fallback arithmetic
     doc_id, sheet_name = _get_document_meta(data)
