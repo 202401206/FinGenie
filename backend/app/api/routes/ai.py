@@ -2,10 +2,10 @@
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.ai.chatbot import chat_with_workspace
 from app.ai.providers.groq_provider import (
@@ -14,8 +14,9 @@ from app.ai.providers.groq_provider import (
     GroqError,
 )
 from app.ai.summary import generate_summary
+from app.core.security import require_user
 from app.schemas.requests import ChatRequest
-from app.schemas.responses import ChatResponse, SummaryResponse
+from app.schemas.responses import ChatResponse, CurrentUser, SummaryResponse
 
 router = APIRouter(prefix="/workspaces", tags=["ai"])
 
@@ -110,7 +111,10 @@ def _handle_provider_error(exc: GroqError) -> HTTPException:
 
 
 @router.post("/{workspace_id}/summary", response_model=SummaryResponse)
-async def get_summary_endpoint(workspace_id: UUID) -> SummaryResponse:
+async def get_summary_endpoint(
+    workspace_id: UUID,
+    user: Annotated[CurrentUser, Depends(require_user)],
+) -> SummaryResponse:
     """Generate an executive financial summary for the specified workspace."""
     data = get_workspace_data(workspace_id)
     try:
@@ -128,6 +132,7 @@ async def get_summary_endpoint(workspace_id: UUID) -> SummaryResponse:
 async def chat_endpoint(
     workspace_id: UUID,
     request: ChatRequest,
+    user: Annotated[CurrentUser, Depends(require_user)],
 ) -> ChatResponse:
     """Ask a question about the workspace financial data using tool calling."""
     data = get_workspace_data(workspace_id)

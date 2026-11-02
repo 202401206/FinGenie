@@ -1,20 +1,73 @@
 """End-to-end API route tests for AI Summary and Chatbot endpoints."""
 
+from collections.abc import Iterator
 from unittest.mock import patch
+from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.ai.providers.groq_provider import GroqAPIError, GroqConfigurationError
+from app.core.security import require_user
 from app.main import app
+from app.schemas.responses import CurrentUser
 
 BANK_WS = "20000000-0000-4000-8000-000000000001"
 BALANCE_SHEET_WS = "20000000-0000-4000-8000-000000000002"
 NONEXISTENT_WS = "00000000-0000-0000-0000-000000000099"
+TEST_USER_ID = UUID("10000000-0000-4000-8000-000000000001")
 
 
-def test_post_summary_bank_workspace_200() -> None:
+@pytest.fixture
+def auth_client() -> Iterator[TestClient]:
+    """TestClient pre-authenticated with verified test user."""
+    previous = app.dependency_overrides.copy()
+    app.dependency_overrides[require_user] = lambda: CurrentUser(id=TEST_USER_ID)
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides = previous
+
+
+# --- Authentication Security Tests (Leader Review Point 1) ---
+
+
+def test_post_summary_missing_token_401() -> None:
     with TestClient(app) as client:
         response = client.post(f"/api/workspaces/{BANK_WS}/summary")
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.json()["detail"]["code"] == "unauthorized"
+
+
+def test_post_chat_missing_token_401() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/workspaces/{BANK_WS}/chat",
+            json={"message": "What is my net cash flow this month?"},
+        )
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.json()["detail"]["code"] == "unauthorized"
+
+
+def test_post_chat_invalid_token_header_401() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/workspaces/{BANK_WS}/chat",
+            headers={"Authorization": "Basic invalid_credentials"},
+            json={"message": "What is my net cash flow this month?"},
+        )
+
+    assert response.status_code == 401
+
+
+# --- Authenticated Functional Endpoint Tests ---
+
+
+def test_post_summary_bank_workspace_200(auth_client: TestClient) -> None:
+    response = auth_client.post(f"/api/workspaces/{BANK_WS}/summary")
 
     assert response.status_code == 200
     data = response.json()
@@ -28,9 +81,10 @@ def test_post_summary_bank_workspace_200() -> None:
     assert len(data["source_refs"]) >= 1
 
 
-def test_post_summary_balance_sheet_workspace_200() -> None:
-    with TestClient(app) as client:
-        response = client.post(f"/api/workspaces/{BALANCE_SHEET_WS}/summary")
+def test_post_summary_balance_sheet_workspace_200(
+    auth_client: TestClient,
+) -> None:
+    response = auth_client.post(f"/api/workspaces/{BALANCE_SHEET_WS}/summary")
 
     assert response.status_code == 200
     data = response.json()
@@ -40,12 +94,11 @@ def test_post_summary_balance_sheet_workspace_200() -> None:
     assert data["disclaimer"] == "This is not financial advice."
 
 
-def test_post_chat_bank_workspace_200() -> None:
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": "What is my net cash flow this month?"},
-        )
+def test_post_chat_bank_workspace_200(auth_client: TestClient) -> None:
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "What is my net cash flow this month?"},
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -54,12 +107,11 @@ def test_post_chat_bank_workspace_200() -> None:
     assert data["disclaimer"] == "This is not financial advice."
 
 
-def test_post_chat_greeting_200() -> None:
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": "Hello FinGenie"},
-        )
+def test_post_chat_greeting_200(auth_client: TestClient) -> None:
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "Hello FinGenie"},
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -70,55 +122,52 @@ def test_post_chat_greeting_200() -> None:
     assert data["calculation_ids"] == []
 
 
-def test_post_summary_nonexistent_workspace_404() -> None:
-    with TestClient(app) as client:
-        response = client.post(f"/api/workspaces/{NONEXISTENT_WS}/summary")
+def test_post_summary_nonexistent_workspace_404(
+    auth_client: TestClient,
+) -> None:
+    response = auth_client.post(f"/api/workspaces/{NONEXISTENT_WS}/summary")
 
     assert response.status_code == 404
     data = response.json()
     assert data["detail"]["code"] == "workspace_not_found"
 
 
-def test_post_chat_empty_message_422() -> None:
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": ""},
-        )
+def test_post_chat_empty_message_422(auth_client: TestClient) -> None:
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": ""},
+    )
 
     assert response.status_code == 422
 
 
-def test_post_chat_whitespace_message_422() -> None:
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": "   "},
-        )
+def test_post_chat_whitespace_message_422(auth_client: TestClient) -> None:
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "   "},
+    )
 
     assert response.status_code == 422
     data = response.json()
     assert data["detail"]["code"] == "invalid_chat_request"
 
 
-def test_post_chat_message_too_long_422() -> None:
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": "a" * 2001},
-        )
+def test_post_chat_message_too_long_422(auth_client: TestClient) -> None:
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "a" * 2001},
+    )
 
     assert response.status_code == 422
 
 
 @patch("app.api.routes.ai.chat_with_workspace")
-def test_post_chat_rate_limit_error_429(mock_chat) -> None:
+def test_post_chat_rate_limit_error_429(mock_chat, auth_client: TestClient) -> None:
     mock_chat.side_effect = GroqAPIError(status_code=429, message="Rate limit exceeded")
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": "What is my cash flow?"},
-        )
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "What is my cash flow?"},
+    )
 
     assert response.status_code == 429
     data = response.json()
@@ -127,13 +176,12 @@ def test_post_chat_rate_limit_error_429(mock_chat) -> None:
 
 
 @patch("app.api.routes.ai.chat_with_workspace")
-def test_post_chat_provider_unavailable_503(mock_chat) -> None:
+def test_post_chat_provider_unavailable_503(mock_chat, auth_client: TestClient) -> None:
     mock_chat.side_effect = GroqAPIError(status_code=503, message="Groq outage")
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": "What is my cash flow?"},
-        )
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "What is my cash flow?"},
+    )
 
     assert response.status_code == 503
     data = response.json()
@@ -142,13 +190,12 @@ def test_post_chat_provider_unavailable_503(mock_chat) -> None:
 
 
 @patch("app.api.routes.ai.chat_with_workspace")
-def test_post_chat_upstream_error_502(mock_chat) -> None:
+def test_post_chat_upstream_error_502(mock_chat, auth_client: TestClient) -> None:
     mock_chat.side_effect = GroqAPIError(status_code=500, message="Internal Groq Error")
-    with TestClient(app) as client:
-        response = client.post(
-            f"/api/workspaces/{BANK_WS}/chat",
-            json={"message": "What is my cash flow?"},
-        )
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "What is my cash flow?"},
+    )
 
     assert response.status_code == 502
     data = response.json()
@@ -156,10 +203,11 @@ def test_post_chat_upstream_error_502(mock_chat) -> None:
 
 
 @patch("app.api.routes.ai.generate_summary")
-def test_post_summary_configuration_error_503(mock_summary) -> None:
+def test_post_summary_configuration_error_503(
+    mock_summary, auth_client: TestClient
+) -> None:
     mock_summary.side_effect = GroqConfigurationError("Missing API key")
-    with TestClient(app) as client:
-        response = client.post(f"/api/workspaces/{BANK_WS}/summary")
+    response = auth_client.post(f"/api/workspaces/{BANK_WS}/summary")
 
     assert response.status_code == 503
     data = response.json()
