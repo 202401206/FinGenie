@@ -11,7 +11,9 @@ from fastapi.testclient import TestClient
 
 from app.analysis.bank_kpis import (
     CALCULATION_ID_BALANCE_RECONCILIATION,
+    CALCULATION_ID_CLOSING_BALANCE,
     CALCULATION_ID_NET_CASH_FLOW,
+    CALCULATION_ID_OPENING_BALANCE,
     CALCULATION_ID_TOTAL_CREDIT,
     CALCULATION_ID_TOTAL_DEBIT,
     RELIABILITY_INSUFFICIENT_DATA,
@@ -19,10 +21,13 @@ from app.analysis.bank_kpis import (
     RELIABILITY_VALID,
     STATUS_AVAILABLE,
     STATUS_UNAVAILABLE,
+    WARNING_MISSING_CURRENCY,
     analyze_bank_statement,
     calculate_balance_reconciliation,
     calculate_bank_kpis,
+    calculate_closing_balance,
     calculate_net_cash_flow,
+    calculate_opening_balance,
     calculate_total_credit,
     calculate_total_debit,
     serialize_analysis_result,
@@ -106,6 +111,42 @@ class TestSyntheticContractConformance:
             "transactions[2].debit",
         ]
 
+    def test_opening_balance_conformance(self, synthetic_bank_statement: dict) -> None:
+        metric = calculate_opening_balance(synthetic_bank_statement)
+
+        assert metric["key"] == "opening_balance"
+        assert metric["value"] == Decimal("10000")
+        assert metric["value"] == 10000
+        assert metric["unit"] == "INR"
+        assert metric["status"] == STATUS_AVAILABLE
+        assert metric["reason"] is None
+        assert metric["calculation_id"] == CALCULATION_ID_OPENING_BALANCE
+
+        assert len(metric["source_refs"]) == 1
+        ref = metric["source_refs"][0]
+        assert ref["document_id"] == "10000000-0000-4000-8000-000000000001"
+        assert ref["sheet_name"] is None
+        assert ref["source_rows"] == [4]
+        assert ref["field_paths"] == ["opening_balance"]
+
+    def test_closing_balance_conformance(self, synthetic_bank_statement: dict) -> None:
+        metric = calculate_closing_balance(synthetic_bank_statement)
+
+        assert metric["key"] == "closing_balance"
+        assert metric["value"] == Decimal("12500")
+        assert metric["value"] == 12500
+        assert metric["unit"] == "INR"
+        assert metric["status"] == STATUS_AVAILABLE
+        assert metric["reason"] is None
+        assert metric["calculation_id"] == CALCULATION_ID_CLOSING_BALANCE
+
+        assert len(metric["source_refs"]) == 1
+        ref = metric["source_refs"][0]
+        assert ref["document_id"] == "10000000-0000-4000-8000-000000000001"
+        assert ref["sheet_name"] is None
+        assert ref["source_rows"] == [9]
+        assert ref["field_paths"] == ["closing_balance"]
+
     def test_balance_reconciliation_conformance(
         self, synthetic_bank_statement: dict
     ) -> None:
@@ -156,6 +197,329 @@ class TestSyntheticContractConformance:
         assert result["metrics"][3]["key"] == "balance_reconciliation"
         assert result["metrics"][3]["value"] == Decimal("0")
 
+    def test_analyze_with_optional_balance_metrics(
+        self, synthetic_bank_statement: dict
+    ) -> None:
+        result = analyze_bank_statement(
+            synthetic_bank_statement,
+            workspace_id="20000000-0000-4000-8000-000000000001",
+            include_balance_metrics=True,
+        )
+
+        assert len(result["metrics"]) == 5
+        keys = [m["key"] for m in result["metrics"]]
+        assert keys == [
+            "total_credit",
+            "total_debit",
+            "net_cash_flow",
+            "opening_balance",
+            "closing_balance",
+        ]
+
+
+class TestOpeningAndClosingBalances:
+    """Verify calculate_opening_balance and calculate_closing_balance behavior."""
+
+    def test_missing_opening_balance_metric(self) -> None:
+        statement = {
+            "currency": "INR",
+            "closing_balance": 1000,
+        }
+        metric = calculate_opening_balance(statement)
+        assert metric["status"] == STATUS_UNAVAILABLE
+        assert metric["value"] is None
+        assert "Missing required 'opening_balance'" in metric["reason"]
+
+    def test_missing_closing_balance_metric(self) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": 1000,
+        }
+        metric = calculate_closing_balance(statement)
+        assert metric["status"] == STATUS_UNAVAILABLE
+        assert metric["value"] is None
+        assert "Missing required 'closing_balance'" in metric["reason"]
+
+    def test_invalid_opening_balance_metric(self) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": "not-a-number",
+            "closing_balance": 1000,
+        }
+        metric = calculate_opening_balance(statement)
+        assert metric["status"] == STATUS_UNAVAILABLE
+        assert metric["value"] is None
+        assert "Invalid non-numeric 'opening_balance'" in metric["reason"]
+
+    def test_invalid_closing_balance_metric(self) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": 1000,
+            "closing_balance": "corrupted",
+        }
+        metric = calculate_closing_balance(statement)
+        assert metric["status"] == STATUS_UNAVAILABLE
+        assert metric["value"] is None
+        assert "Invalid non-numeric 'closing_balance'" in metric["reason"]
+
+    def test_source_locations_omitted_opening_closing(self) -> None:
+        statement = {
+            "currency": "USD",
+            "opening_balance": 500,
+            "closing_balance": 750,
+        }
+        op = calculate_opening_balance(statement)
+        assert op["status"] == STATUS_AVAILABLE
+        assert op["value"] == Decimal("500")
+        assert op["source_refs"][0]["source_rows"] == []
+        assert op["source_refs"][0]["field_paths"] == ["opening_balance"]
+
+        cl = calculate_closing_balance(statement)
+        assert cl["status"] == STATUS_AVAILABLE
+        assert cl["value"] == Decimal("750")
+        assert cl["source_refs"][0]["source_rows"] == []
+        assert cl["source_refs"][0]["field_paths"] == ["closing_balance"]
+
+
+class TestMissingCurrencyPolicy:
+    """Verify that unknown currency blocks affected monetary KPIs and sets reliability."""
+
+    def test_missing_currency_blocks_total_credit(
+        self, synthetic_bank_statement: dict
+    ) -> None:
+        statement = json.loads(json.dumps(synthetic_bank_statement))
+        statement["currency"] = None
+
+        credit = calculate_total_credit(statement)
+        assert credit["status"] == STATUS_UNAVAILABLE
+        assert credit["value"] is None
+        assert credit["unit"] is None
+        assert credit["reason"] == WARNING_MISSING_CURRENCY
+        # Preserves source references to the contributing transactions
+        assert credit["source_refs"][0]["source_rows"] == [6]
+        assert credit["source_refs"][0]["field_paths"] == ["transactions[0].credit"]
+
+    def test_missing_currency_blocks_all_monetary_metrics(
+        self, synthetic_bank_statement: dict
+    ) -> None:
+        statement = json.loads(json.dumps(synthetic_bank_statement))
+        statement["currency"] = ""  # empty string
+
+        debit = calculate_total_debit(statement)
+        assert debit["status"] == STATUS_UNAVAILABLE
+        assert debit["reason"] == WARNING_MISSING_CURRENCY
+        assert debit["source_refs"][0]["source_rows"] == [7, 8]
+
+        net = calculate_net_cash_flow(statement)
+        assert net["status"] == STATUS_UNAVAILABLE
+        assert net["reason"] == WARNING_MISSING_CURRENCY
+
+        op = calculate_opening_balance(statement)
+        assert op["status"] == STATUS_UNAVAILABLE
+        assert op["reason"] == WARNING_MISSING_CURRENCY
+        assert op["source_refs"][0]["source_rows"] == [4]
+
+        cl = calculate_closing_balance(statement)
+        assert cl["status"] == STATUS_UNAVAILABLE
+        assert cl["reason"] == WARNING_MISSING_CURRENCY
+        assert cl["source_refs"][0]["source_rows"] == [9]
+
+        recon = calculate_balance_reconciliation(statement)
+        assert recon["status"] == STATUS_UNAVAILABLE
+        assert recon["reason"] == WARNING_MISSING_CURRENCY
+
+    def test_analyze_bank_statement_missing_currency_sets_insufficient_data(
+        self, synthetic_bank_statement: dict
+    ) -> None:
+        statement = json.loads(json.dumps(synthetic_bank_statement))
+        del statement["currency"]
+
+        result = analyze_bank_statement(statement)
+        assert result["currency"] is None
+        assert result["reliability"] == RELIABILITY_INSUFFICIENT_DATA
+        assert WARNING_MISSING_CURRENCY in result["warnings"]
+        assert all(m["status"] == STATUS_UNAVAILABLE for m in result["metrics"])
+        assert all(m["unit"] is None for m in result["metrics"])
+
+
+class TestCommaSeparatedNumberStrings:
+    """Verify support for International and Indian grouping formats and rejection of malformed numbers."""
+
+    @pytest.mark.parametrize(
+        ("val_str", "expected_decimal"),
+        [
+            ("1,500.00", Decimal("1500.00")),
+            ("1,000,000.00", Decimal("1000000.00")),
+            ("123,456,789.25", Decimal("123456789.25")),
+            ("1,500", Decimal("1500")),
+        ],
+    )
+    def test_valid_international_grouping(
+        self, val_str: str, expected_decimal: Decimal
+    ) -> None:
+        statement = {
+            "currency": "USD",
+            "opening_balance": val_str,
+            "closing_balance": val_str,
+            "transactions": [{"credit": val_str, "debit": "0.00", "source_row": 2}],
+        }
+        op = calculate_opening_balance(statement)
+        assert op["status"] == STATUS_AVAILABLE
+        assert op["value"] == expected_decimal
+
+        credit = calculate_total_credit(statement)
+        assert credit["status"] == STATUS_AVAILABLE
+        assert credit["value"] == expected_decimal
+
+    @pytest.mark.parametrize(
+        ("val_str", "expected_decimal"),
+        [
+            ("1,50,000.00", Decimal("150000.00")),
+            ("10,00,000.50", Decimal("1000000.50")),
+            ("1,00,00,000", Decimal("10000000")),
+            ("12,34,56,789.50", Decimal("123456789.50")),
+        ],
+    )
+    def test_valid_indian_grouping(
+        self, val_str: str, expected_decimal: Decimal
+    ) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": val_str,
+            "closing_balance": val_str,
+            "transactions": [{"credit": val_str, "debit": 0, "source_row": 2}],
+        }
+        op = calculate_opening_balance(statement)
+        assert op["status"] == STATUS_AVAILABLE
+        assert op["value"] == expected_decimal
+
+        credit = calculate_total_credit(statement)
+        assert credit["status"] == STATUS_AVAILABLE
+        assert credit["value"] == expected_decimal
+
+    @pytest.mark.parametrize(
+        ("val_str", "expected_decimal"),
+        [
+            ("-1,500.00", Decimal("-1500.00")),
+            ("-1,50,000.00", Decimal("-150000.00")),
+            ("-10,00,000.50", Decimal("-1000000.50")),
+        ],
+    )
+    def test_valid_negative_grouped_balances(
+        self, val_str: str, expected_decimal: Decimal
+    ) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": val_str,
+            "closing_balance": val_str,
+            "transactions": [],
+        }
+        op = calculate_opening_balance(statement)
+        assert op["status"] == STATUS_AVAILABLE
+        assert op["value"] == expected_decimal
+
+        cl = calculate_closing_balance(statement)
+        assert cl["status"] == STATUS_AVAILABLE
+        assert cl["value"] == expected_decimal
+
+    @pytest.mark.parametrize(
+        "malformed_str",
+        [
+            "1,00",
+            "1,0000",
+            "100,",
+            ",100",
+            "1,000,00",
+            "1,50,00",
+            "1,2,3",
+            "1,500.0,0",
+            "1.2.3",
+            "1,,000",
+            "1,50,000,00.00",
+            "1,2345.00",
+        ],
+    )
+    def test_rejected_malformed_grouping_strings(self, malformed_str: str) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": malformed_str,
+            "transactions": [{"credit": malformed_str, "debit": 0, "source_row": 2}],
+        }
+        op = calculate_opening_balance(statement)
+        assert op["status"] == STATUS_UNAVAILABLE
+        assert op["value"] is None
+
+        credit = calculate_total_credit(statement)
+        assert credit["status"] == STATUS_UNAVAILABLE
+        assert credit["value"] is None
+
+
+class TestEmptyTransactionsPolicy:
+    """Verify behavior with zero transactions under various balance and currency conditions."""
+
+    def test_empty_transactions_matching_balances_valid_analysis(self) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": "5,000.00",
+            "closing_balance": "5,000.00",
+            "transactions": [],
+        }
+        result = analyze_bank_statement(statement)
+
+        assert result["reliability"] == RELIABILITY_VALID
+        assert result["warnings"] == []
+        assert result["metrics"][0]["key"] == "total_credit"
+        assert result["metrics"][0]["value"] == Decimal("0")
+        assert result["metrics"][0]["status"] == STATUS_AVAILABLE
+        assert result["metrics"][1]["key"] == "total_debit"
+        assert result["metrics"][1]["value"] == Decimal("0")
+        assert result["metrics"][2]["key"] == "net_cash_flow"
+        assert result["metrics"][2]["value"] == Decimal("0")
+
+    def test_empty_transactions_missing_opening_balance(self) -> None:
+        statement = {
+            "currency": "INR",
+            "closing_balance": 5000,
+            "transactions": [],
+        }
+        result = analyze_bank_statement(statement)
+        assert result["reliability"] == RELIABILITY_INSUFFICIENT_DATA
+        assert any("opening_balance" in w for w in result["warnings"])
+
+    def test_empty_transactions_missing_closing_balance(self) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": 5000,
+            "transactions": [],
+        }
+        result = analyze_bank_statement(statement)
+        assert result["reliability"] == RELIABILITY_INSUFFICIENT_DATA
+        assert any("closing_balance" in w for w in result["warnings"])
+
+    def test_empty_transactions_mismatching_balances_unreliable(self) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": "5,000.00",
+            "closing_balance": "6,000.00",
+            "transactions": [],
+        }
+        result = analyze_bank_statement(statement)
+
+        assert result["reliability"] == RELIABILITY_UNRELIABLE
+        assert len(result["warnings"]) == 1
+        assert "mismatch" in result["warnings"][0].lower()
+
+    def test_missing_transactions_not_silently_fabricated(self) -> None:
+        statement = {
+            "currency": "INR",
+            "opening_balance": 5000,
+            "closing_balance": 5000,
+            # No transactions key
+        }
+        result = analyze_bank_statement(statement)
+        assert result["reliability"] == RELIABILITY_INSUFFICIENT_DATA
+        assert any("Missing required 'transactions'" in w for w in result["warnings"])
+
 
 class TestReconciliationReliabilityPolicy:
     """Verify that reconciliation is evaluated for reliability even when metric is excluded."""
@@ -168,14 +532,12 @@ class TestReconciliationReliabilityPolicy:
 
         result = analyze_bank_statement(tampered, include_reconciliation_metric=False)
 
-        # Metrics array must strictly contain only the 3 primary metrics
         assert len(result["metrics"]) == 3
         assert [m["key"] for m in result["metrics"]] == [
             "total_credit",
             "total_debit",
             "net_cash_flow",
         ]
-        # Overall document reliability must reflect the reconciliation failure
         assert result["reliability"] == RELIABILITY_UNRELIABLE
         assert len(result["warnings"]) == 1
         assert "mismatch" in result["warnings"][0].lower()
@@ -463,8 +825,6 @@ class TestFastApiSerializationAndPrecision:
         result = analyze_bank_statement(statement, workspace_id="ws-precision")
         encoded = jsonable_encoder(result)
 
-        # 300.50 - 50.25 = 250.25 net cash flow
-        # 1000.50 + 250.25 = 1250.75 closing balance -> valid
         assert encoded["reliability"] == RELIABILITY_VALID
         assert encoded["metrics"][0]["value"] == 300.5
         assert encoded["metrics"][1]["value"] == 50.25
@@ -733,3 +1093,18 @@ class TestTraceabilityAndSheetHandling:
         )
         assert len(kpis_with_recon) == 4
         assert kpis_with_recon[3]["key"] == "balance_reconciliation"
+
+        kpis_with_all = calculate_bank_kpis(
+            synthetic_bank_statement,
+            include_reconciliation_metric=True,
+            include_balance_metrics=True,
+        )
+        assert len(kpis_with_all) == 6
+        assert [k["key"] for k in kpis_with_all] == [
+            "total_credit",
+            "total_debit",
+            "net_cash_flow",
+            "opening_balance",
+            "closing_balance",
+            "balance_reconciliation",
+        ]
