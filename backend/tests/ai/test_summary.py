@@ -7,6 +7,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from app.ai.guard_retry import AIValidationError
 from app.ai.providers.groq_provider import GroqProvider
 from app.ai.summary import generate_summary
 from app.core.config import Settings
@@ -44,7 +45,7 @@ async def test_bank_summary_offline_fallback() -> None:
 async def test_bank_summary_with_mocked_groq() -> None:
     data = load_fixture("bank-statement.json")
     llm_generated_text = (
-        "During January 2026, total deposits reached INR 5000 against withdrawals of INR 2500, "
+        "During this statement period, total deposits reached INR 5000 against withdrawals of INR 2500, "
         "yielding a positive cash flow of INR 2500."
     )
 
@@ -120,3 +121,37 @@ async def test_balance_sheet_unreliable_warning() -> None:
 async def test_unsupported_document_type() -> None:
     with pytest.raises(ValueError, match="Unsupported or unrecognized"):
         await generate_summary({"random_key": "some_data"})
+
+
+@pytest.mark.anyio
+async def test_summary_validation_retry_failure_raises_ai_validation_error() -> None:
+    data = load_fixture("bank-statement.json")
+
+    def mock_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test-fail",
+                "model": "openai/gpt-oss-120b",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "In 2026 your deposits were INR 9999999.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(mock_handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        settings = Settings(
+            groq_api_key=SecretStr("mock-key"),
+            groq_base_url="https://mock.groq.test/v1",
+        )
+        provider = GroqProvider(settings=settings, client=client)
+
+        with pytest.raises(AIValidationError, match="failed numeric verification"):
+            await generate_summary(data, provider=provider)

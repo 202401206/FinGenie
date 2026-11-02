@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
+from app.ai.chatbot import AIValidationError
 from app.ai.providers.groq_provider import GroqAPIError, GroqConfigurationError
 from app.core.security import require_user
 from app.main import app
@@ -212,3 +213,30 @@ def test_post_summary_configuration_error_503(
     assert response.status_code == 503
     data = response.json()
     assert data["detail"]["code"] == "provider_unavailable"
+
+
+@patch("app.api.routes.ai.chat_with_workspace")
+def test_post_chat_validation_failed_502(mock_chat, auth_client: TestClient) -> None:
+    mock_chat.side_effect = AIValidationError("Numeric verification failed: '99999'")
+    response = auth_client.post(
+        f"/api/workspaces/{BANK_WS}/chat",
+        json={"message": "What is my cash flow?"},
+    )
+
+    assert response.status_code == 502
+    data = response.json()
+    assert data["detail"]["code"] == "ai_validation_failed"
+    assert "Numeric verification failed" in data["detail"]["message"]
+
+
+@patch("app.api.routes.ai.generate_summary")
+def test_post_summary_validation_failed_502(
+    mock_summary, auth_client: TestClient
+) -> None:
+    mock_summary.side_effect = AIValidationError("Numeric verification failed: '2026'")
+    response = auth_client.post(f"/api/workspaces/{BANK_WS}/summary")
+
+    assert response.status_code == 502
+    data = response.json()
+    assert data["detail"]["code"] == "ai_validation_failed"
+    assert "Numeric verification failed" in data["detail"]["message"]

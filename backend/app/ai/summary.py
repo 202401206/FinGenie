@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.ai.guard_retry import verify_and_retry_text
 from app.ai.providers.groq_provider import GroqProvider
 from app.ai.tools import execute_tool, merge_source_refs
 from app.schemas.responses import SummaryResponse
@@ -62,7 +63,13 @@ async def _generate_bank_summary(
             {"role": "user", "content": prompt},
         ]
         response = await llm.generate(messages=messages, temperature=0.1)
-        summary_text = response.content or ""
+        summary_text = await verify_and_retry_text(
+            initial_text=response.content or "",
+            tool_results=tool_results,
+            messages=messages,
+            llm=llm,
+            max_retries=2,
+        )
     else:
         # Deterministic offline template fallback
         flow_word = "positive" if (net_val or 0) >= 0 else "negative"
@@ -122,7 +129,13 @@ async def _generate_balance_sheet_summary(
             {"role": "user", "content": prompt},
         ]
         response = await llm.generate(messages=messages, temperature=0.1)
-        summary_text = response.content or ""
+        summary_text = await verify_and_retry_text(
+            initial_text=response.content or "",
+            tool_results=tool_results,
+            messages=messages,
+            llm=llm,
+            max_retries=2,
+        )
     else:
         # Deterministic offline template fallback
         summary_text = (

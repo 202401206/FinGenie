@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from app.ai.chatbot import chat_with_workspace
+from app.ai.chatbot import AIValidationError, chat_with_workspace
 from app.ai.providers.groq_provider import GroqProvider
 from app.core.config import Settings
 
@@ -178,3 +178,175 @@ async def test_chat_unsupported_metric_refusal_offline() -> None:
         assert "I do not have a tool to calculate" in response.text
         assert response.calculation_ids == []
         assert response.source_refs == []
+
+
+@pytest.mark.anyio
+async def test_chat_validation_retry_success() -> None:
+    data = load_fixture("bank-statement.json")
+    call_count = 0
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        body = json.loads(request.content.decode("utf-8"))
+
+        if call_count == 1:
+            # Turn 1: tool call
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-turn-1",
+                    "model": "openai/gpt-oss-120b",
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "bank_net_cash_flow",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                },
+            )
+
+        if call_count == 2:
+            # Turn 2: LLM produces a hallucinated number (99999)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-turn-2",
+                    "model": "openai/gpt-oss-120b",
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": "Your net cash flow is INR 99999.",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+            )
+
+        # Turn 3: Guard re-prompted LLM with corrective feedback, LLM corrects itself
+        user_correction = body["messages"][-1]["content"]
+        assert "SECURITY REJECTION" in user_correction
+        assert "99999" in user_correction
+
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-turn-3",
+                "model": "openai/gpt-oss-120b",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Your verified net cash flow is positive at INR 2500.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(mock_handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        settings = Settings(
+            groq_api_key=SecretStr("mock-key"),
+            groq_base_url="https://mock.groq.test/v1",
+        )
+        provider = GroqProvider(settings=settings, client=client)
+
+        response = await chat_with_workspace(
+            message="Did I save money?",
+            workspace_data=data,
+            provider=provider,
+        )
+
+    assert call_count == 3
+    assert "INR 2500" in response.text
+
+
+@pytest.mark.anyio
+async def test_chat_validation_retry_failure_raises_ai_validation_error() -> None:
+    data = load_fixture("bank-statement.json")
+    call_count = 0
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+
+        if call_count == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-turn-1",
+                    "model": "openai/gpt-oss-120b",
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "bank_net_cash_flow",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                },
+            )
+
+        # Persistently hallucinate across all retries
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl-turn-{call_count}",
+                "model": "openai/gpt-oss-120b",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": f"Your net cash flow is INR {call_count * 10000}.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(mock_handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        settings = Settings(
+            groq_api_key=SecretStr("mock-key"),
+            groq_base_url="https://mock.groq.test/v1",
+        )
+        provider = GroqProvider(settings=settings, client=client)
+
+        with pytest.raises(AIValidationError, match="failed numeric verification"):
+            await chat_with_workspace(
+                message="Did I save money?",
+                workspace_data=data,
+                provider=provider,
+            )
+
+    # Initial turn + 1st tool answer + 2 retries = 4 calls total
+    assert call_count == 4

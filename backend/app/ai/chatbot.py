@@ -3,9 +3,12 @@
 import json
 from typing import Any
 
+from app.ai.guard_retry import AIValidationError, verify_and_retry_text
 from app.ai.providers.groq_provider import GroqProvider
 from app.ai.tools import FINANCIAL_TOOLS, ToolResult, execute_tool, merge_source_refs
 from app.schemas.responses import ChatResponse
+
+__all__ = ["AIValidationError", "SYSTEM_CHAT_PROMPT", "chat_with_workspace"]
 
 SYSTEM_CHAT_PROMPT = (
     "You are FinGenie, an intelligent, objective, and strictly factual financial assistant. "
@@ -133,6 +136,16 @@ async def chat_with_workspace(
         final_text = (
             response.content
             or "I could not complete the calculation within the allowed reasoning turns."
+        )
+
+    # Numeric verification & bounded retry loop (Leader Point 2)
+    if llm.is_configured:
+        final_text = await verify_and_retry_text(
+            initial_text=final_text,
+            tool_results=executed_tools,
+            messages=messages,
+            llm=llm,
+            max_retries=2,
         )
 
     calculation_ids = [res.calculation_id for res in executed_tools]

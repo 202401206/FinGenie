@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.ai.chatbot import chat_with_workspace
+from app.ai.chatbot import AIValidationError, chat_with_workspace
 from app.ai.providers.groq_provider import (
     GroqAPIError,
     GroqConfigurationError,
@@ -119,6 +119,14 @@ async def get_summary_endpoint(
     data = get_workspace_data(workspace_id)
     try:
         return await generate_summary(data)
+    except AIValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "ai_validation_failed",
+                "message": exc.message,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -138,6 +146,14 @@ async def chat_endpoint(
     data = get_workspace_data(workspace_id)
     try:
         return await chat_with_workspace(request.message, data)
+    except AIValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "ai_validation_failed",
+                "message": exc.message,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
