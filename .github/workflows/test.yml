@@ -1,0 +1,28 @@
+﻿name: FinGenie CI Suite
+
+on:
+  push:
+    branches: [ master, main, '**' ]
+  pull_request:
+    branches: [ master, main, '**' ]
+
+jobs:
+  test:
+    name: Run Unit & Contract Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Unit & Contract Tests
+        run: |
+          if [ -d "frontend" ]; then
+            cd frontend
+          fi
+          node --test tests/*.test.js
