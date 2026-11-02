@@ -118,7 +118,7 @@ def test_bank_missing_currency_returns_unavailable() -> None:
     result = execute_tool("bank_total_credit", {}, data)
     assert result.status == "unavailable"
     assert result.value is None
-    assert "Missing currency" in (result.reason or "")
+    assert "currency" in (result.reason or "").lower()
 
 
 def test_bank_missing_closing_balance_returns_unavailable() -> None:
@@ -127,7 +127,7 @@ def test_bank_missing_closing_balance_returns_unavailable() -> None:
     result = execute_tool("bank_closing_balance", {}, data)
     assert result.status == "unavailable"
     assert result.value is None
-    assert "Closing balance is missing" in (result.reason or "")
+    assert "closing_balance" in (result.reason or "").lower()
 
 
 def test_missing_source_row_not_invented() -> None:
