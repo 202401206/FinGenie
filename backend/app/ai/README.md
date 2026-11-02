@@ -1,8 +1,8 @@
 # AI Module Documentation
 
-**Owner:** Prince (AI 2: Conversational Assistant & AI Integration)  
+**Owner:** Prince Patel (AI 2: Conversational Assistant & AI Integration)  
 **Track:** AI + Analysis Team  
-**Status:** Implemented & Verified with 100% Passing Tests  
+**Status:** Implemented, Number Guard Verified & 100% Passing Tests (259 backend tests)  
 
 ---
 
@@ -11,12 +11,15 @@
 The AI module powers **FinGenie's natural language understanding**, including the **AI Executive Summary** (`POST /api/workspaces/{id}/summary`) and the **Conversational Chatbot** (`POST /api/workspaces/{id}/chat`).
 
 ### The Golden Rule: The AI Never Makes Up a Number
-In financial systems, LLMs cannot be trusted to perform raw arithmetic on transaction tables.  
-To guarantee 100% mathematical accuracy and zero hallucinations:
+In financial applications, LLMs cannot be trusted to perform raw arithmetic on transaction tables.  
+To guarantee 100% mathematical accuracy and eliminate hallucinations:
 1. **The LLM is forbidden from doing arithmetic.**
 2. When answering financial questions, the LLM is given a menu of **deterministic Python calculation tools**.
 3. The LLM decides *which* tool to call, our Python code executes the exact math locally using `Decimal` precision, and feeds the verified result back to the LLM.
-4. Every output includes full audit traceability: `calculation_ids` (formula versions), `source_refs` (exact source rows in the uploaded CSV/XLSX), and the legal disclaimer: *"This is not financial advice."*
+4. Every draft response passes through **Srujan's Number Guard** before the user sees it.
+5. If unverified numbers are detected, a bounded **2-attempt corrective retry loop** instructs the model to fix its response.
+6. If the model persistently fails verification, an **HTTP 502 (`ai_validation_failed`)** error is returned so hallucinations never reach the user.
+7. Every output includes full audit traceability: `calculation_ids` (formula versions), `source_refs` (exact source rows in the uploaded CSV/XLSX), and the mandatory legal disclaimer: *"This is not financial advice."*
 
 ---
 
@@ -30,6 +33,8 @@ backend/app/ai/
 ├── tools.py                   # Tool registry, JSON schemas, execution engine, and source ref merger
 ├── summary.py                 # AI Executive Summary engine (Sprint 2 goal)
 ├── chatbot.py                 # Conversational Assistant multi-turn tool calling loop (Sprint 3 goal)
+├── number_guard.py            # Srujan's deterministic numeric verification guard (PR #4, merged)
+├── guard_retry.py             # Number Guard verification, bounded retry loop & AIValidationError
 └── README.md                  # This documentation file
 ```
 
@@ -67,80 +72,69 @@ Serves as the **bridge between the AI and the financial calculation engines**.
 
 ---
 
-### C. `summary.py` (AI Executive Summary Engine)
-Powers the **Sprint 2** endpoint `POST /api/workspaces/{id}/summary`.
+### C. `number_guard.py` & `guard_retry.py` (Verification & Bounded Retry Loop)
+Implements **Leader Review Point 2**: preventing ungrounded numbers from reaching the user.
 
-* **Privacy-First Design:** Never transmits raw transaction lines to Groq. Computes verified aggregates locally (Total In, Total Out, Net Flow, Closing Balance) and sends only those 4 figures to Groq to generate a 2-sentence executive summary.
-* **Balance Sheet Integrity Check:** If a balance sheet is un-reconciled ($\text{Assets} \neq \text{Liabilities} + \text{Equity}$), the engine halts AI generation and returns an explicit safety warning stating the exact discrepancy.
-* **Dual-Mode Execution:**
-  * *Online:* Generates natural executive prose via Groq.
-  * *Offline Fallback:* Automatically populates a clean deterministic template if the server is offline or lacks an API key, guaranteeing the server never crashes.
+* **Srujan's Number Guard (`number_guard.py`)**:
+  * `verify_tool_results_text(text, tool_results)`: Structural check verifying that every number literal and currency unit in the prose matches an available `ToolResult`.
+  * Regex validation supporting both Western (`125,000.00`) and Indian Lakhs/Crores (`1,25,000.00`) notation.
+  * Enforces safe bullet dashes (`-`) and rejects detached negative signs (`- 5000`).
+* **Retry Engine (`guard_retry.py`)**:
+  * `verify_and_retry_text(initial_text, tool_results, messages, llm, max_retries=2)`:
+    * Attempt 0: Checks the LLM's draft answer. If valid, returns immediately.
+    * Attempts 1-2: If unverified numbers are found, appends a `SECURITY REJECTION` message citing the exact invalid tokens and re-prompts the model with greedy decoding (`temperature=0.0`).
+    * If verification fails after 2 retries: raises `AIValidationError`.
+* **API Route Mapping**:
+  * Handled in `backend/app/api/routes/ai.py`:
+  * Catches `AIValidationError` and returns **HTTP 502 Bad Gateway** with:
+    ```json
+    {
+      "detail": {
+        "code": "ai_validation_failed",
+        "message": "Generated financial response failed numeric verification: ..."
+      }
+    }
+    ```
 
 ---
 
-### D. `chatbot.py` (Conversational Assistant)
-Powers the **Sprint 3** endpoint `POST /api/workspaces/{id}/chat`.
+### D. `summary.py` (AI Executive Summary Engine)
+Powers `POST /api/workspaces/{id}/summary`.
+
+* **Privacy-First Design:** Never transmits raw transaction lines to Groq. Computes verified aggregates locally (Total Deposits, Total Withdrawals, Net Flow, Closing Balance) and sends only those figures to Groq to generate a 2-sentence executive summary.
+* **Balance Sheet Integrity Check:** If a balance sheet is un-reconciled ($\text{Assets} \neq \text{Liabilities} + \text{Equity}$), the engine halts AI generation and returns an explicit safety warning stating the exact discrepancy.
+* **Guard Verification:** Runs `verify_and_retry_text()` on every summary before packaging into `SummaryResponse`.
+* **Dual-Mode Execution:**
+  * *Online:* Generates natural executive prose via Groq.
+  * *Offline Fallback:* Automatically populates a clean deterministic template if the server is offline or lacks an API key.
+
+---
+
+### E. `chatbot.py` (Conversational Assistant)
+Powers `POST /api/workspaces/{id}/chat`.
 
 * **Multi-Turn Handshake Loop:**
   1. User asks question $\rightarrow$ Sent to Groq with `FINANCIAL_TOOLS`.
   2. If Groq requests tools $\rightarrow$ Python executes tools locally on workspace data.
   3. Tool output returned to Groq as a `tool` message.
   4. Groq synthesizes final grounded answer citing verified numbers.
-  5. Bounded to 3 turns (`max_turns = 3`) to prevent infinite loop token drain.
-* **Scenarios Handled:**
-  * *Financial Q&A:* Triggers tool execution, collects calculation IDs, and attaches row citations.
-  * *Greetings / Capabilities:* Answers conversationally without running unnecessary tools (`calculation_ids: []`).
-* **Prompt Injection Defense:** Strict system prompt forbids the LLM from inventing numbers or obeying user prompts that try to override calculation rules.
+  5. Bounded to 5 turns (`max_turns = 5`) to prevent infinite token loops.
+* **Guard Verification:** Once `final_text` is generated, passes through `verify_and_retry_text()` before returning `ChatResponse`.
+* **Refusal Guardrail (Rule 4):**
+  * When asked about unsupported metrics (e.g. credit scores, cryptocurrency, stock predictions, or ROI), strictly refuses: *"I do not have a tool to calculate that"* and lists supported tools.
+* **Authentication Security (Leader Point 1):**
+  * Protected by FastAPI's `user: Annotated[CurrentUser, Depends(require_user)]`. Anonymous requests are rejected with **HTTP 401 Unauthorized**.
 
 ---
 
-## 3. Integration Guide for Teammates
+## 3. Team Member Allocation (Option A Standard)
 
-### For Aarushi (Bank Statement Analytics):
-When you finish `backend/app/analysis/bank_kpis.py`:
-1. In `backend/app/ai/tools.py`, find `_execute_bank_tool()`.
-2. Replace the placeholder calculation with your functions:
-   ```python
-   from app.analysis.bank_kpis import (
-       calculate_net_cash_flow,
-       calculate_total_credit,
-       calculate_total_debit,
-   )
-
-   # In _execute_bank_tool:
-   if name == "bank_total_credit":
-       return calculate_total_credit(data)
-   ```
-
-### For Rashi (Balance Sheet Analytics):
-When you finish `backend/app/analysis/balance_sheet_kpis.py`:
-1. In `backend/app/ai/tools.py`, find `_execute_balance_sheet_tool()`.
-2. Delegate the tool calls to your functions in `app/analysis/balance_sheet_kpis.py`.
-
-### For Srujan (Numeric Verification Guard):
-When you finish `backend/app/ai/number_guard.py`:
-1. In `backend/app/ai/chatbot.py`, import your verification function:
-   ```python
-   from app.ai.number_guard import verify_numbers_in_text
-   ```
-2. Call it before returning `ChatResponse`. If unverified numbers are found, trigger a retry prompt!
-
-### For Team Leader / Backend (Routing):
-To expose the endpoints in FastAPI, simply import `generate_summary` and `chat_with_workspace`:
-```python
-@router.post("/workspaces/{id}/summary", response_model=SummaryResponse)
-async def get_summary(id: UUID, user: CurrentUser = Depends(require_user)):
-    data = await get_workspace_data(id, user)
-    return await generate_summary(data)
-
-
-@router.post("/workspaces/{id}/chat", response_model=ChatResponse)
-async def chat(
-    id: UUID, request: ChatRequest, user: CurrentUser = Depends(require_user)
-):
-    data = await get_workspace_data(id, user)
-    return await chat_with_workspace(request.message, data)
-```
+| Teammate | Responsibility | Status |
+|---|---|---|
+| **Prince Patel** | AI 2: Conversational Assistant, AI Summary, Guard Integration, API Routes | Complete (PR #2) |
+| **Srujan** | AI 1: Numeric Verification Guard (`number_guard.py`) | Merged (PR #4) |
+| **Rashi Patel** | Analysis 1: Bank Statement Analytics (`bank_kpis.py`) | In Review (PR #5) |
+| **Aarushi Shah** | Analysis 2: Balance Sheet Analytics (`balance_sheet_kpis.py`) | In Development |
 
 ---
 
@@ -159,11 +153,19 @@ FINGENIE_GROQ_BASE_URL=https://api.groq.com/openai/v1
 
 ## 5. Running Tests
 
-All AI tests run offline using synthetic contract fixtures (`contracts/examples/`) and mock HTTP transports. No real API keys or internet connection are required:
+All AI tests run offline using synthetic contract fixtures (`contracts/examples/`) and mock HTTP transports. No real API keys or internet connection are required for automated test runs:
 
 ```sh
 cd backend
 .\.venv\Scripts\Activate.ps1
-python -m pytest tests/ai/
-python -m ruff check app/ai/ tests/ai/
+
+# Run full backend test suite (259 tests passing)
+python -m pytest tests/
+
+# Run AI-specific tests
+python -m pytest tests/ai/ tests/api/test_ai_routes.py -v
+
+# Run Ruff linter and code formatting checks
+python -m ruff check backend
+python -m ruff format --check backend
 ```

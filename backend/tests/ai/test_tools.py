@@ -3,10 +3,17 @@
 import json
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.ai.tools import FINANCIAL_TOOLS, ToolExecutionError, ToolResult, execute_tool
+from app.ai.tools import (
+    FINANCIAL_TOOLS,
+    ToolExecutionError,
+    ToolResult,
+    _metric_dict_to_tool_result,
+    execute_tool,
+)
 
 
 def load_fixture(filename: str) -> dict:
@@ -130,3 +137,69 @@ def test_missing_source_row_not_invented() -> None:
     result = execute_tool("bank_total_debit", {}, data)
     # Only transaction 2 (source_row 8) should be present; transaction 1 should not have an invented index
     assert result.source_refs[0].source_rows == [8]
+
+
+def test_metric_dict_to_tool_result_adapter() -> None:
+    metric = {
+        "key": "total_credit",
+        "value": Decimal("7500.50"),
+        "unit": "INR",
+        "calculation_id": "bank.total_credit.v1",
+        "status": "available",
+        "reason": None,
+        "source_refs": [
+            {
+                "document_id": "doc_123",
+                "sheet_name": "Sheet1",
+                "source_rows": [10, 11],
+                "field_paths": ["transactions[0].credit"],
+            }
+        ],
+    }
+    result = _metric_dict_to_tool_result("bank_total_credit", metric)
+    assert result.name == "bank_total_credit"
+    assert result.value == Decimal("7500.50")
+    assert result.unit == "INR"
+    assert result.calculation_id == "bank.total_credit.v1"
+    assert result.status == "available"
+    assert len(result.source_refs) == 1
+    assert result.source_refs[0].document_id == "doc_123"
+    assert result.source_refs[0].sheet_name == "Sheet1"
+    assert result.source_refs[0].source_rows == [10, 11]
+    assert result.source_refs[0].field_paths == ["transactions[0].credit"]
+
+
+def test_bank_tool_delegates_to_analysis_module() -> None:
+    data = load_fixture("bank-statement.json")
+    mock_bank_kpis = MagicMock()
+    mock_bank_kpis.calculate_total_credit.return_value = {
+        "key": "total_credit",
+        "value": Decimal("9999"),
+        "unit": "INR",
+        "status": "available",
+        "calculation_id": "bank.total_credit.v1",
+        "source_refs": [],
+    }
+
+    with patch("app.ai.tools.bank_kpis", mock_bank_kpis):
+        result = execute_tool("bank_total_credit", {}, data)
+        assert result.value == Decimal("9999")
+        mock_bank_kpis.calculate_total_credit.assert_called_once_with(data)
+
+
+def test_balance_sheet_tool_delegates_to_analysis_module() -> None:
+    data = load_fixture("balance-sheet.json")
+    mock_bs_kpis = MagicMock()
+    mock_bs_kpis.calculate_working_capital.return_value = {
+        "key": "working_capital",
+        "value": Decimal("5555555"),
+        "unit": "INR",
+        "status": "available",
+        "calculation_id": "balance_sheet.working_capital.v1",
+        "source_refs": [],
+    }
+
+    with patch("app.ai.tools.balance_sheet_kpis", mock_bs_kpis):
+        result = execute_tool("balance_sheet_working_capital", {}, data)
+        assert result.value == Decimal("5555555")
+        mock_bs_kpis.calculate_working_capital.assert_called_once_with(data)

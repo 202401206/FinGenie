@@ -6,6 +6,17 @@ from typing import Any, Literal
 
 from app.schemas.responses import SourceRefModel
 
+# Teammate Analysis KPI modules (Option A integration)
+try:
+    import app.analysis.bank_kpis as bank_kpis
+except ImportError:
+    bank_kpis = None
+
+try:
+    import app.analysis.balance_sheet_kpis as balance_sheet_kpis
+except ImportError:
+    balance_sheet_kpis = None
+
 
 @dataclass
 class SourceRef:
@@ -190,11 +201,70 @@ def _get_document_meta(data: dict[str, Any]) -> tuple[str, str | None]:
     return doc_id, sheet_name
 
 
+def _metric_dict_to_tool_result(name: str, metric: dict[str, Any]) -> ToolResult:
+    """Converts a standard Analysis metric dictionary into an AI ToolResult."""
+    refs: list[SourceRef] = []
+    raw_refs = metric.get("source_refs")
+    if isinstance(raw_refs, list):
+        for ref in raw_refs:
+            if isinstance(ref, dict):
+                refs.append(
+                    SourceRef(
+                        document_id=str(ref.get("document_id") or ""),
+                        sheet_name=ref.get("sheet_name"),
+                        source_rows=list(ref.get("source_rows") or []),
+                        field_paths=list(ref.get("field_paths") or []),
+                    )
+                )
+
+    val = metric.get("value")
+    decimal_val: Decimal | None = None
+    if val is not None:
+        try:
+            decimal_val = Decimal(str(val))
+        except Exception:
+            decimal_val = None
+
+    return ToolResult(
+        name=name,
+        value=decimal_val,
+        unit=str(metric.get("unit") or "unknown"),
+        calculation_id=str(metric.get("calculation_id") or f"analysis.{name}.v1"),
+        status=str(metric.get("status") or "available"),
+        reason=metric.get("reason"),
+        source_refs=refs,
+    )
+
+
 def _execute_bank_tool(
     name: str,
     _arguments: dict[str, Any],
     data: dict[str, Any],
 ) -> ToolResult:
+    # 1. Route to Rashi's Bank Statement Analytics module if available
+    if bank_kpis is not None:
+        if name == "bank_total_credit" and hasattr(bank_kpis, "calculate_total_credit"):
+            return _metric_dict_to_tool_result(
+                name, bank_kpis.calculate_total_credit(data)
+            )
+        if name == "bank_total_debit" and hasattr(bank_kpis, "calculate_total_debit"):
+            return _metric_dict_to_tool_result(
+                name, bank_kpis.calculate_total_debit(data)
+            )
+        if name == "bank_net_cash_flow" and hasattr(
+            bank_kpis, "calculate_net_cash_flow"
+        ):
+            return _metric_dict_to_tool_result(
+                name, bank_kpis.calculate_net_cash_flow(data)
+            )
+        if name == "bank_closing_balance" and hasattr(
+            bank_kpis, "calculate_closing_balance"
+        ):
+            return _metric_dict_to_tool_result(
+                name, bank_kpis.calculate_closing_balance(data)
+            )
+
+    # 2. Internal fallback arithmetic
     doc_id, sheet_name = _get_document_meta(data)
     currency = data.get("currency")
     if not currency:
@@ -343,6 +413,28 @@ def _execute_balance_sheet_tool(
     _arguments: dict[str, Any],
     data: dict[str, Any],
 ) -> ToolResult:
+    # 1. Route to Aarushi's Balance Sheet Analytics module if available
+    if balance_sheet_kpis is not None:
+        if name == "balance_sheet_working_capital" and hasattr(
+            balance_sheet_kpis, "calculate_working_capital"
+        ):
+            return _metric_dict_to_tool_result(
+                name, balance_sheet_kpis.calculate_working_capital(data)
+            )
+        if name == "balance_sheet_current_ratio" and hasattr(
+            balance_sheet_kpis, "calculate_current_ratio"
+        ):
+            return _metric_dict_to_tool_result(
+                name, balance_sheet_kpis.calculate_current_ratio(data)
+            )
+        if name == "balance_sheet_verify_reconciliation" and hasattr(
+            balance_sheet_kpis, "verify_balance_sheet_reconciliation"
+        ):
+            return _metric_dict_to_tool_result(
+                name, balance_sheet_kpis.verify_balance_sheet_reconciliation(data)
+            )
+
+    # 2. Internal fallback arithmetic
     doc_id, sheet_name = _get_document_meta(data)
     currency = data.get("currency")
     if not currency:
