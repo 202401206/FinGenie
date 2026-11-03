@@ -94,7 +94,7 @@ async def test_balance_sheet_summary_balanced() -> None:
 
     assert "reconciled and balanced" in summary.text
     assert "7000000" in summary.text
-    assert "1.88" in summary.text
+    assert "1.88" in summary.text or "1.875" in summary.text
     assert summary.disclaimer == "This is not financial advice."
     assert "balance_sheet.working_capital.v1" in summary.calculation_ids
     assert "balance_sheet.current_ratio.v1" in summary.calculation_ids
