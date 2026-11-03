@@ -99,7 +99,9 @@ def calculate_working_capital(statement_data: dict[str, Any]) -> dict[str, Any]:
         - Traceability: collects source_rows from unit_scale and all contributing line items.
     """
     doc_id, sheet_name = _get_document_metadata(statement_data)
-    currency = statement_data.get("currency") if isinstance(statement_data, dict) else None
+    currency = (
+        statement_data.get("currency") if isinstance(statement_data, dict) else None
+    )
 
     if not isinstance(statement_data, dict):
         return {
@@ -277,7 +279,9 @@ def calculate_balance_difference(statement_data: dict[str, Any]) -> dict[str, An
         - Traceability: points to source_rows of unit_scale, assets.total, liabilities.total, and equity.total.
     """
     doc_id, sheet_name = _get_document_metadata(statement_data)
-    currency = statement_data.get("currency") if isinstance(statement_data, dict) else None
+    currency = (
+        statement_data.get("currency") if isinstance(statement_data, dict) else None
+    )
 
     if not isinstance(statement_data, dict):
         return {
