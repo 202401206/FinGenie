@@ -141,22 +141,46 @@ REALISTIC_BALANCE_SHEET = {
             {"name": "Cash & Cash Equivalents", "value": "45.00", "source_row": 6},
             {"name": "Trade Accounts Receivable", "value": "85.50", "source_row": 7},
             {"name": "Inventories & Raw Stock", "value": "60.00", "source_row": 8},
-            {"name": "Prepaid Corporate Taxes & Advances", "value": "9.50", "source_row": 9},
+            {
+                "name": "Prepaid Corporate Taxes & Advances",
+                "value": "9.50",
+                "source_row": 9,
+            },
         ],
         "non_current": [
-            {"name": "Property, Plant & Equipment", "value": "180.00", "source_row": 11},
-            {"name": "Intangible Software & Patents", "value": "20.00", "source_row": 12},
+            {
+                "name": "Property, Plant & Equipment",
+                "value": "180.00",
+                "source_row": 11,
+            },
+            {
+                "name": "Intangible Software & Patents",
+                "value": "20.00",
+                "source_row": 12,
+            },
         ],
         "total": "400.00",  # 200.00 current + 200.00 non-current
     },
     "liabilities": {
         "current": [
             {"name": "Trade Accounts Payable", "value": "65.00", "source_row": 15},
-            {"name": "Short-Term Working Capital Loan", "value": "35.00", "source_row": 16},
-            {"name": "Accrued Employee Liabilities", "value": "10.00", "source_row": 17},
+            {
+                "name": "Short-Term Working Capital Loan",
+                "value": "35.00",
+                "source_row": 16,
+            },
+            {
+                "name": "Accrued Employee Liabilities",
+                "value": "10.00",
+                "source_row": 17,
+            },
         ],
         "non_current": [
-            {"name": "Long-Term Senior Bank Term Loans", "value": "90.00", "source_row": 19},
+            {
+                "name": "Long-Term Senior Bank Term Loans",
+                "value": "90.00",
+                "source_row": 19,
+            },
         ],
         "total": "200.00",  # 110.00 current + 90.00 non-current
     },
@@ -171,6 +195,7 @@ REALISTIC_BALANCE_SHEET = {
 # ==============================================================================
 # Ground Truth Calculation & Manual Verification Reference
 # ==============================================================================
+
 
 def compute_bank_ground_truth(data: dict) -> dict:
     credits = sum(Decimal(str(tx.get("credit", 0))) for tx in data["transactions"])
@@ -206,14 +231,21 @@ def compute_balance_sheet_ground_truth(data: dict) -> dict:
 # Rate-Limit Aware Calling Helper
 # ==============================================================================
 
-async def safe_chat(query: str, data: dict, provider: GroqProvider, verbose: bool = False):
+
+async def safe_chat(
+    query: str, data: dict, provider: GroqProvider, verbose: bool = False
+):
     for attempt in range(4):
         try:
-            return await chat_with_workspace(query, data, provider=provider, verbose=verbose)
+            return await chat_with_workspace(
+                query, data, provider=provider, verbose=verbose
+            )
         except Exception as e:
             if "429" in str(e) and attempt < 3:
                 wait_sec = 5 * (attempt + 1)
-                print(f"  [Rate limit 429 hit; cooling down for {wait_sec}s before retry {attempt + 1}...]")
+                print(
+                    f"  [Rate limit 429 hit; cooling down for {wait_sec}s before retry {attempt + 1}...]"
+                )
                 await asyncio.sleep(wait_sec)
             else:
                 raise
@@ -226,7 +258,9 @@ async def safe_summary(data: dict, provider: GroqProvider):
         except Exception as e:
             if "429" in str(e) and attempt < 3:
                 wait_sec = 5 * (attempt + 1)
-                print(f"  [Rate limit 429 hit; cooling down for {wait_sec}s before retry {attempt + 1}...]")
+                print(
+                    f"  [Rate limit 429 hit; cooling down for {wait_sec}s before retry {attempt + 1}...]"
+                )
                 await asyncio.sleep(wait_sec)
             else:
                 raise
@@ -235,6 +269,7 @@ async def safe_summary(data: dict, provider: GroqProvider):
 # ==============================================================================
 # Main Execution Runner
 # ==============================================================================
+
 
 async def run_evaluation() -> None:
     print("=" * 80)
@@ -264,16 +299,24 @@ async def run_evaluation() -> None:
 
     print("\n[GROUND TRUTH AUDIT - BALANCE SHEET]")
     print(f"  * Working Capital (scaled):    INR {bs_gt['working_capital']:,}")
-    print(f"  * Current Ratio:               {bs_gt['current_ratio']:.4f} (Exact: 200/110 = 1.81818...)")
-    print(f"  * Reconciliation Discrepancy:  INR {bs_gt['balance_difference']} (Reconciled: 400 == 200 + 200)")
+    print(
+        f"  * Current Ratio:               {bs_gt['current_ratio']:.4f} (Exact: 200/110 = 1.81818...)"
+    )
+    print(
+        f"  * Reconciliation Discrepancy:  INR {bs_gt['balance_difference']} (Reconciled: 400 == 200 + 200)"
+    )
 
     # --------------------------------------------------------------------------
     # Scenario 1: Bank Statement Executive Summary
     # --------------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("TEST 1: Bank Statement Executive Summary (POST /api/workspaces/{id}/summary)")
+    print(
+        "TEST 1: Bank Statement Executive Summary (POST /api/workspaces/{id}/summary)"
+    )
     print("=" * 80)
-    print("Calling Groq to generate executive summary on realistic 10-transaction dataset...")
+    print(
+        "Calling Groq to generate executive summary on realistic 10-transaction dataset..."
+    )
     bank_summary = await safe_summary(REALISTIC_BANK_STATEMENT, provider=provider)
     print(f'\n[AI Generated Summary]:\n  "{bank_summary.text}"')
     print(f"\n[Verified Formulas Used]: {bank_summary.calculation_ids}")
@@ -284,12 +327,16 @@ async def run_evaluation() -> None:
     val_credit = str(int(bank_gt["total_credit"])) in bank_summary.text.replace(",", "")
     val_debit = str(int(bank_gt["total_debit"])) in bank_summary.text.replace(",", "")
     val_net = str(int(bank_gt["net_cash_flow"])) in bank_summary.text.replace(",", "")
-    val_close = str(int(bank_gt["closing_balance"])) in bank_summary.text.replace(",", "")
+    val_close = str(int(bank_gt["closing_balance"])) in bank_summary.text.replace(
+        ",", ""
+    )
     print(f"  - Total Credit (252450) present: {val_credit}")
     print(f"  - Total Debit (168750) present:  {val_debit}")
     print(f"  - Net Cash Flow (83700) present: {val_net}")
     print(f"  - Closing Bal (233700) present:  {val_close}")
-    assert val_credit and val_debit and val_net and val_close, "Summary failed ground truth verification!"
+    assert val_credit and val_debit and val_net and val_close, (
+        "Summary failed ground truth verification!"
+    )
     print(">>> [TEST 1 PASSED]: 100% ground truth match with zero hallucinations!")
 
     await asyncio.sleep(4)
@@ -302,7 +349,9 @@ async def run_evaluation() -> None:
     print("=" * 80)
     q2 = "How much money was deposited into my account this month, and what was my total spending?"
     print(f'[User Query]: "{q2}"')
-    resp2 = await safe_chat(q2, REALISTIC_BANK_STATEMENT, provider=provider, verbose=True)
+    resp2 = await safe_chat(
+        q2, REALISTIC_BANK_STATEMENT, provider=provider, verbose=True
+    )
     print(f'\n[AI Assistant Answer]:\n  "{resp2.text}"')
     print(f"[Formulas Invoked]: {resp2.calculation_ids}")
     print(f"[Spreadsheet Citations]: {[r.source_rows for r in resp2.source_refs]}")
@@ -325,7 +374,9 @@ async def run_evaluation() -> None:
     print("=" * 80)
     q3 = "Did my account generate positive cash flow in October, and what was my final closing balance?"
     print(f'[User Query]: "{q3}"')
-    resp3 = await safe_chat(q3, REALISTIC_BANK_STATEMENT, provider=provider, verbose=True)
+    resp3 = await safe_chat(
+        q3, REALISTIC_BANK_STATEMENT, provider=provider, verbose=True
+    )
     print(f'\n[AI Assistant Answer]:\n  "{resp3.text}"')
     print(f"[Formulas Invoked]: {resp3.calculation_ids}")
     print(f"[Spreadsheet Citations]: {[r.source_rows for r in resp3.source_refs]}")
@@ -354,7 +405,9 @@ async def run_evaluation() -> None:
 
     print("\n--- Manual Ground Truth Verification ---")
     val4_wc = "9000000" in bs_summary.text.replace(",", "") or "90" in bs_summary.text
-    val4_rec = "reconcil" in bs_summary.text.lower() or "balance" in bs_summary.text.lower()
+    val4_rec = (
+        "reconcil" in bs_summary.text.lower() or "balance" in bs_summary.text.lower()
+    )
     print(f"  - Working capital matches ₹90,00,000 (or 90 Lakhs): {val4_wc}")
     print(f"  - Reconciled check recognized: {val4_rec}")
     assert val4_wc, "Balance sheet summary failed working capital check!"
@@ -371,7 +424,9 @@ async def run_evaluation() -> None:
     print("=" * 80)
     q5 = "What is our company's short-term liquidity? What is our current ratio and working capital?"
     print(f'[User Query]: "{q5}"')
-    resp5 = await safe_chat(q5, REALISTIC_BALANCE_SHEET, provider=provider, verbose=True)
+    resp5 = await safe_chat(
+        q5, REALISTIC_BALANCE_SHEET, provider=provider, verbose=True
+    )
     print(f'\n[AI Assistant Answer]:\n  "{resp5.text}"')
     print(f"[Formulas Invoked]: {resp5.calculation_ids}")
     print(f"[Spreadsheet Citations]: {[r.source_rows for r in resp5.source_refs]}")
@@ -392,7 +447,9 @@ async def run_evaluation() -> None:
     print("\n" + "=" * 80)
     print("TEST 6: Srujan's Number Guard Defense (Live Attack / Fabrication Intercept)")
     print("=" * 80)
-    fake_claim = "Your net cash flow was INR 500000 and closing balance was INR 999999999."
+    fake_claim = (
+        "Your net cash flow was INR 500000 and closing balance was INR 999999999."
+    )
     print(f'Simulated Hallucinated Claim: "{fake_claim}"')
 
     tool_results = [
@@ -401,11 +458,19 @@ async def run_evaluation() -> None:
     ]
 
     guard_res = verify_tool_results_text(fake_claim, tool_results)
-    print(f"  - Number Guard Status: {'PASSED' if guard_res.valid else 'BLOCKED (Hallucination Detected)'}")
-    print(f"  - Intercepted Issues: {[f'{i.token}: {i.reason}' for i in guard_res.issues]}")
+    print(
+        f"  - Number Guard Status: {'PASSED' if guard_res.valid else 'BLOCKED (Hallucination Detected)'}"
+    )
+    print(
+        f"  - Intercepted Issues: {[f'{i.token}: {i.reason}' for i in guard_res.issues]}"
+    )
     assert not guard_res.valid, "Number Guard failed to intercept hallucinated numbers!"
-    assert len(guard_res.issues) >= 2, "Number Guard failed to catch all fabricated tokens!"
-    print(">>> [TEST 6 PASSED]: Srujan's Number Guard reliably blocked unverified numbers!")
+    assert len(guard_res.issues) >= 2, (
+        "Number Guard failed to catch all fabricated tokens!"
+    )
+    print(
+        ">>> [TEST 6 PASSED]: Srujan's Number Guard reliably blocked unverified numbers!"
+    )
 
     # --------------------------------------------------------------------------
     # Scenario 7: Refusal Guardrail on Unsupported Financial Speculation
@@ -415,7 +480,9 @@ async def run_evaluation() -> None:
     print("=" * 80)
     unsupported_query = "Can you calculate my company's credit score and predict our next quarter stock price?"
     print(f'[User Query]: "{unsupported_query}"')
-    refusal_resp = await safe_chat(unsupported_query, REALISTIC_BANK_STATEMENT, provider=provider)
+    refusal_resp = await safe_chat(
+        unsupported_query, REALISTIC_BANK_STATEMENT, provider=provider
+    )
     print(f'\n[AI Refusal Output]:\n  "{refusal_resp.text}"')
     print(f"[Formulas Invoked]: {refusal_resp.calculation_ids}")
     assert "I do not have a tool to calculate that" in refusal_resp.text
@@ -423,7 +490,9 @@ async def run_evaluation() -> None:
     print(">>> [TEST 7 PASSED]: Refused speculative questions with 0 hallucinations!")
 
     print("\n" + "=" * 80)
-    print("🎉 ALL 7 RIGOROUS REAL-WORLD INTEGRATION TESTS PASSED WITH REAL GROQ API! 🎉")
+    print(
+        "🎉 ALL 7 RIGOROUS REAL-WORLD INTEGRATION TESTS PASSED WITH REAL GROQ API! 🎉"
+    )
     print("=" * 80)
 
 
