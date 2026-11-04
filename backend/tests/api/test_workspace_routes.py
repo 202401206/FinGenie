@@ -1,6 +1,8 @@
-"""Workspace listing through real auth/repository wiring and synthetic HTTP."""
+"""Workspace reads through real auth/repository wiring and synthetic HTTP."""
 
+import json
 from collections.abc import Iterator
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -39,7 +41,7 @@ def client() -> Iterator[TestClient]:
         app.dependency_overrides = previous
 
 
-def mock_backend(database_handler, *, auth_status=200):
+def mock_backend(database_handler, *, auth_status=200, workspace_only=True):
     """Replace only external HTTP, keeping real auth and repository dependencies."""
 
     def handle(request):
@@ -51,7 +53,8 @@ def mock_backend(database_handler, *, auth_status=200):
             return httpx.Response(
                 200, json={"id": users[request.headers["authorization"]]}
             )
-        assert request.url.path == "/rest/v1/workspaces"
+        if workspace_only:
+            assert request.url.path == "/rest/v1/workspaces"
         return database_handler(request)
 
     async def connection():
@@ -284,3 +287,175 @@ def test_malformed_database_response_is_safe_503(client, payload):
     response = client.get("/api/workspaces", headers=HEADERS)
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "database_unavailable"
+
+
+DOCUMENT_ID = "30000000-0000-4000-8000-000000000001"
+DETAIL_URL = f"/api/workspaces/{WORKSPACE_A}"
+TRANSACTIONS_URL = f"{DETAIL_URL}/transactions"
+
+
+def document(**changes):
+    return {
+        "id": DOCUMENT_ID,
+        "status": "parsed",
+        "original_filename": "statement.csv",
+        "currency": None,
+        "period_start": None,
+        "period_end": None,
+        **changes,
+    }
+
+
+def test_details_preserve_nulls_and_hide_private_data(client):
+    def database(request):
+        if request.url.path == "/rest/v1/workspaces":
+            assert request.url.params["id"] == f"eq.{WORKSPACE_A}"
+            assert request.url.params["user_id"] == f"eq.{USER_A}"
+            return httpx.Response(200, json=[workspace()])
+        assert request.url.path == "/rest/v1/documents"
+        assert request.url.params["workspace_id"] == f"eq.{WORKSPACE_A}"
+        return httpx.Response(
+            200,
+            json=[
+                document(
+                    original_filename="C:\\private\\statement.csv",
+                    file_path="private/source.csv",
+                    parsed_json={"private": True},
+                )
+            ],
+        )
+
+    mock_backend(database, workspace_only=False)
+    response = client.get(DETAIL_URL, headers=HEADERS)
+    assert response.status_code == 200
+    assert response.json() == {"workspace": workspace(), "documents": [document()]}
+
+
+@pytest.mark.parametrize("suffix", ["", "/transactions"])
+def test_malformed_workspace_id_is_422(client, suffix):
+    mock_backend(lambda request: pytest.fail("Invalid ID reached the database."))
+    response = client.get(f"/api/workspaces/invalid{suffix}", headers=HEADERS)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("suffix", ["", "/transactions"])
+def test_foreign_and_absent_workspaces_have_identical_404(client, suffix):
+    def database(request):
+        assert request.url.params["user_id"] == f"eq.{USER_B}"
+        assert request.headers["authorization"] == "Bearer token-b"
+        assert request.url.params["id"] in {f"eq.{WORKSPACE_A}", f"eq.{WORKSPACE_B}"}
+        return httpx.Response(200, json=[])
+
+    mock_backend(database)
+    headers = {"Authorization": "Bearer token-b"}
+    foreign = client.get(f"{DETAIL_URL}{suffix}", headers=headers)
+    absent = client.get(f"/api/workspaces/{WORKSPACE_B}{suffix}", headers=headers)
+    assert foreign.status_code == absent.status_code == 404
+    assert (
+        foreign.json()
+        == absent.json()
+        == {
+            "detail": {"code": "workspace_not_found", "message": "Workspace not found."}
+        }
+    )
+
+
+def test_balance_sheet_details_work_but_transactions_are_409(client):
+    row = workspace(user_type="business", document_type="balance_sheet")
+
+    def database(request):
+        if request.url.path == "/rest/v1/workspaces":
+            return httpx.Response(200, json=[row])
+        assert request.url.path == "/rest/v1/documents"
+        return httpx.Response(200, json=[document(original_filename="balance.xlsx")])
+
+    mock_backend(database, workspace_only=False)
+    assert client.get(DETAIL_URL, headers=HEADERS).json()["workspace"] == row
+    response = client.get(TRANSACTIONS_URL, headers=HEADERS)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "unsupported_document_type"
+
+
+def test_workspace_without_documents_has_empty_transaction_page(client):
+    def database(request):
+        if request.url.path == "/rest/v1/workspaces":
+            return httpx.Response(200, json=[workspace()])
+        assert request.url.path == "/rest/v1/documents"
+        return httpx.Response(200, json=[])
+
+    mock_backend(database, workspace_only=False)
+    response = client.get(TRANSACTIONS_URL, headers=HEADERS)
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "limit": 50, "offset": 0, "total": 0}
+
+
+def test_transactions_keep_numeric_decimal_precision_and_order(client):
+    first = "40000000-0000-4000-8000-000000000001"
+    second = "40000000-0000-4000-8000-000000000002"
+    raw = (
+        f'[{{"id":"{first}","document_id":"{DOCUMENT_ID}","date":"2026-01-05",'
+        '"description":"Synthetic debit","debit":123456789012345.6789,'
+        '"credit":0,"balance":-0.1234567890123456789,"source_row":6},'
+        f'{{"id":"{second}","document_id":"{DOCUMENT_ID}","date":"2026-01-06",'
+        '"description":"Synthetic credit","debit":0,"credit":1.25,'
+        '"balance":0,"source_row":7}]'
+    )
+
+    def database(request):
+        if request.url.path == "/rest/v1/workspaces":
+            assert request.url.params["user_id"] == f"eq.{USER_A}"
+            return httpx.Response(200, json=[workspace()])
+        if request.url.path == "/rest/v1/documents":
+            return httpx.Response(200, json=[document()])
+        assert request.url.path == "/rest/v1/transactions"
+        assert request.headers["authorization"] == "Bearer token-a"
+        assert request.url.params["document_id"] == f"eq.{DOCUMENT_ID}"
+        assert request.url.params["order"] == "source_row.asc,id.asc"
+        assert request.url.params["limit"] == "2"
+        assert request.url.params["offset"] == "1"
+        return httpx.Response(206, text=raw, headers={"Content-Range": "1-2/4"})
+
+    mock_backend(database, workspace_only=False)
+    response = client.get(f"{TRANSACTIONS_URL}?limit=2&offset=1", headers=HEADERS)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    assert b"123456789012345.6789" in response.content
+    payload = json.loads(response.content, parse_float=Decimal, parse_int=Decimal)
+    assert (payload["limit"], payload["offset"], payload["total"]) == (2, 1, 4)
+    assert payload["items"] == json.loads(raw, parse_float=Decimal, parse_int=Decimal)
+
+
+@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 101}, {"offset": -1}])
+def test_transactions_reject_invalid_pagination(client, params):
+    mock_backend(
+        lambda request: pytest.fail("Invalid pagination reached the database.")
+    )
+    response = client.get(TRANSACTIONS_URL, params=params, headers=HEADERS)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("url", [DETAIL_URL, TRANSACTIONS_URL])
+@pytest.mark.parametrize(
+    "upstream,expected,code",
+    [(401, 401, "unauthorized"), (500, 503, "database_unavailable")],
+)
+def test_detail_and_transaction_database_failures_are_safe(
+    client, url, upstream, expected, code
+):
+    mock_backend(lambda request: httpx.Response(upstream, text="private upstream body"))
+    response = client.get(url, headers=HEADERS)
+    assert response.status_code == expected
+    assert response.json()["detail"]["code"] == code
+    assert "private" not in response.text
+    if expected == 401:
+        assert response.headers["www-authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize("url", [DETAIL_URL, TRANSACTIONS_URL])
+def test_detail_and_transaction_routes_require_auth(client, url):
+    mock_backend(
+        lambda request: pytest.fail("Unauthenticated request reached the database.")
+    )
+    response = client.get(url)
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
