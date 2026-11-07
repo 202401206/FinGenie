@@ -56,6 +56,7 @@ guide after your manual installation; `/api/me` additionally requires Supabase s
 | `supabase/migrations/` | Future SQL changes | Backend |
 
 See [architecture](docs/architecture.md), [ownership](docs/team-ownership.md),
+[white-box testing report](docs/white-box-testing-report.md),
 [planned database](docs/database-schema.md), [contracts](contracts/README.md),
 and [contributing](CONTRIBUTING.md).
 
