@@ -10,3 +10,6 @@ simplejson==3.20.2
 # Required project stack; reserved for future parsers, not imported yet.
 pandas>=2.2,<3.0
 openpyxl>=3.1,<4.0
+
+# Reject DTD/entity-based XML payloads while inspecting XLSX containers.
+defusedxml==0.7.1

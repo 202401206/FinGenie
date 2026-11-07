@@ -64,6 +64,14 @@ This endpoint does not replace Supabase's signup/login API.
 No client-provided owner ID. The browser sets the multipart boundary; callers
 using FormData must not manually set `Content-Type`.
 
+**Milestone 3 working intake policy (7 November 2026):** Anshuman authorized
+implementation of bank-statement-only CSV/XLSX validation with a 5 MiB source
+limit and 25 MiB expanded-XLSX limit, pending team review. Balance sheets receive
+422 unsupported_document_type from the helper. See the
+[working policy and exact resource caps](../../backend/app/services/upload-validation.md).
+This helper is not yet connected to an HTTP upload route. The broader document
+type plan above includes later balance-sheet support.
+
 Validate allowed combinations, file type/content, required columns and eventual
 size limit; then parse and validate standardized JSON. Proposed synchronous flow:
 return 201 only after parsing and persistence succeed. Do not imply background
