@@ -331,6 +331,10 @@ def parse_bank_statement_csv(content: bytes, *, document_id: UUID) -> BankStatem
         try:
             tx_date = _parse_date(raw_date, source_row=logical_row)
         except InvalidStatementError:
+            # Financial cells identify a transaction-shaped row. An invalid
+            # date must reject the statement rather than silently omit movement.
+            if any(value for value in (raw_debit, raw_credit, raw_bal)):
+                raise
             unmapped.append(
                 UnmappedItem(
                     source_row=logical_row,

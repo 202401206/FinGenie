@@ -34,7 +34,8 @@ class UploadPolicy:
     max_rows: int = 10_000
     max_columns: int = 50
     max_expanded_bytes: int = 25 * 1024 * 1024
-    max_zip_members: int = 256
+    max_zip_members: int = 500
+    max_records: int = 20_000
 
     def __post_init__(self) -> None:
         if any(type(value) is not int or value <= 0 for value in vars(self).values()):
@@ -173,7 +174,7 @@ def inspect_csv(content: bytes, policy: UploadPolicy) -> None:
             if not any(cell.strip() for cell in row):
                 continue
             count += 1
-            if count > policy.max_rows + 1 or len(row) > policy.max_columns:
+            if count > policy.max_records or len(row) > policy.max_columns:
                 raise resource_limit()
             table = table or len(row) > 1
         if not table:
@@ -199,7 +200,7 @@ def inspect_sheet(root, policy: UploadPolicy) -> bool:
         if cells:
             populated = True
             populated_rows += 1
-        if populated_rows > policy.max_rows + 1 or len(cells) > policy.max_columns:
+        if populated_rows > policy.max_records or len(cells) > policy.max_columns:
             raise resource_limit()
     return populated
 

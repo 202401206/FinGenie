@@ -11,14 +11,11 @@ not claim a team-wide approval or a deployed Storage configuration.
 - XLSX uses ordinary unencrypted, macro-free OOXML workbooks.
 - Source bytes may be at most 5 MiB (5,242,880 bytes).
 - Expanded XLSX content may be at most 25 MiB (26,214,400 bytes).
-- Intake caps populated CSV records and rows in each worksheet at 10,001
-  (10,000 plus one header), and populated cells per XLSX row or CSV fields at 50.
-  This is a conservative structural cap. All populated preamble/cover rows
-  count here. Dhaval's parser must enforce 10,000 actual transaction rows after
-  finding the bank layout, preserve original row references, and coordinate any
-  additional preamble allowance before changing this cap.
-- XLSX archives have at most 256 members. This additional defensive bound was
-  chosen during implementation and should be reviewed with sample workbooks.
+- The parser and save boundary enforce 10,000 actual transactions. Intake has a
+  separate conservative cap of 20,000 populated CSV records/worksheet rows,
+  including headers, preambles, covers and footers. CSV fields and populated
+  XLSX cells per row are capped at 50.
+- XLSX archives have at most 500 members, aligned with Dhaval's parser.
 - Balance sheets are deferred and yield 422 unsupported_document_type in this
   helper. The broader endpoint plan still lists balance sheets for later work.
 
@@ -72,15 +69,13 @@ route should return message/code through FastAPI's detail wrapper.
 
 ## Integration and evidence
 
-Milestone 3 adds independently tested helpers. The real POST /api/upload will
-be integrated with parser, persistence and recovery in milestone 4. The current
-HTTP upload endpoint is not mounted. Consequently multipart parsing is not yet
-used and no multipart dependency is added in this milestone.
+Milestone 3 introduced these independent helpers. Milestone 4 now registers the
+real upload route with Dhaval's parser and pinned multipart support. See
+[upload orchestration](upload.md) for auth, request-body bounds and recovery.
 
-A bounded UploadFile reader caps bytes consumed by this helper. Starlette can
-spool multipart input before the handler executes, so this is not a claim of an
-end-to-end HTTP request-body limit. Request/multipart limits and authentication
-ordering need attention when the real upload route is introduced.
+The helper bounds bytes consumed from an UploadFile. The registered upload route
+also enforces a whole multipart body budget before spooling and parses the body
+after authentication. See the orchestration guide for exact limits.
 
 Tests use synthetic CSV bytes and real generated XLSX containers. No live bank,
 Supabase, Storage or parser integration is claimed.

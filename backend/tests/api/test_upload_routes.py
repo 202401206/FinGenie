@@ -153,8 +153,8 @@ def test_pending_save_does_not_return_201(upload_client):
     assert "file_path" not in response.text
 
 
-def test_production_upload_stays_unmounted_until_real_parser_is_available():
-    assert "/api/upload" not in production_app.openapi()["paths"]
+def test_production_upload_is_mounted_with_the_real_parser():
+    assert production_app.openapi()["paths"]["/api/upload"]["post"]["responses"]["201"]
 
 
 def test_two_uploaded_files_are_rejected(upload_client):
@@ -209,11 +209,11 @@ def test_rejected_auth_cannot_reach_parser(upload_client):
 def test_file_is_closed_after_parsing_failure(upload_client, monkeypatch):
     from starlette.datastructures import UploadFile
 
-    from app.services.upload import BankParseError
+    from app.services.upload import BankStatementParserError
 
     client, harness = upload_client
     harness.stage = "parse"
-    harness.error = BankParseError("private")
+    harness.error = BankStatementParserError("private")
     closed = []
     original = UploadFile.close
 

@@ -199,12 +199,14 @@ def test_empty_binary_or_malformed_csv_produces_safe_error(content):
 
 
 def test_quoted_multiline_csv_counts_records_not_physical_lines():
-    inspect_csv(b'a,b\n1,"line\nline"\n', UploadPolicy(max_rows=1, max_columns=2))
+    inspect_csv(
+        b'a,b\n1,"line\nline"\n', UploadPolicy(max_rows=1, max_columns=2, max_records=2)
+    )
 
 
 @pytest.mark.parametrize("rows", [1, 2])
 def test_csv_row_count_boundary(rows):
-    policy = UploadPolicy(max_rows=1)
+    policy = UploadPolicy(max_rows=1, max_records=2)
     content = b"a,b\n" + b"1,2\n" * rows
     if rows == 1:
         inspect_csv(content, policy)
@@ -329,7 +331,7 @@ def test_xlsx_populated_column_boundary(columns):
 @pytest.mark.parametrize("rows", [1, 2])
 def test_xlsx_populated_row_boundary(rows):
     content = xlsx([["a", "b"]] + [[1, 2]] * rows)
-    policy = replace(DEFAULT_POLICY, max_rows=1)
+    policy = replace(DEFAULT_POLICY, max_rows=1, max_records=2)
     if rows == 1:
         inspect_xlsx(content, policy)
     else:
@@ -384,12 +386,6 @@ def test_short_reader_chunks_do_not_cause_premature_eof():
             return await super().read(min(size, 2))
 
     assert validate(ShortReads(b"a,b\n1,2\n")).content == b"a,b\n1,2\n"
-
-
-def test_validation_does_not_register_a_placeholder_upload_route():
-    from app.main import app
-
-    assert "/api/upload" not in app.openapi()["paths"]
 
 
 def test_invalid_uploads_do_not_echo_private_filename_or_content():

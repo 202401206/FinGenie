@@ -18,6 +18,7 @@ from app.db.errors import (
 from app.db.parsed_models import ParsedBankStatement, ParsedSaveReceipt
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
 from app.db.repositories.workspaces import WorkspaceRepository
+from app.parsers.errors import BankStatementParserError
 from app.schemas.upload_responses import UploadResponse
 from app.services.source_dependencies import SourceUploadAccess
 from app.services.source_errors import (
@@ -42,10 +43,6 @@ class BankParser(Protocol):
     def __call__(
         self, content: bytes, *, file_kind: str, document_id: UUID
     ) -> BaseModel: ...
-
-
-class BankParseError(Exception):
-    """Adapter boundary for an expected parser rejection; message remains private."""
 
 
 class UploadProcessingError(Exception):
@@ -183,7 +180,7 @@ class UploadService:
                 file_kind=attempt.kind.value,
                 document_id=attempt.document_id,
             )
-        except BankParseError:
+        except BankStatementParserError:
             raise UploadProcessingError(
                 422,
                 "statement_parse_failed",

@@ -386,6 +386,13 @@ def parse_bank_statement_xlsx(content: bytes, *, document_id: UUID) -> BankState
         try:
             tx_date = _cell_to_date(date_cell, source_row=row_idx)
         except InvalidStatementError:
+            # iter_rows pads metadata rows with empty cells. Keep those notes,
+            # but reject malformed dates/formulas on rows with financial values.
+            if any(
+                cell.value not in (None, "")
+                for cell in (debit_cell, credit_cell, balance_cell)
+            ):
+                raise
             non_empty_tail = [c for c in str_cells[1:] if c]
             unmapped.append(
                 UnmappedItem(

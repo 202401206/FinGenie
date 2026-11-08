@@ -9,4 +9,4 @@ safe errors and an authenticated dependency. See [source upload integration](sou
 for their interface, the required reservation migration and their limitations.
 Atomic parsed-data saving now has a separate authenticated repository; see
 [parsed persistence](../db/parsed-documents.md). See [upload orchestration and parser handoff](upload.md) for the tested service
-and unmounted router factory. Activation awaits the real parser.
+and registered upload route with the real CSV/XLSX parser.

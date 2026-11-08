@@ -52,7 +52,35 @@ def create_upload_router(
 
     router = APIRouter(tags=["upload"], route_class=BoundedUploadRoute)
 
-    @router.post("/upload", response_model=UploadResponse, status_code=201)
+    @router.post(
+        "/upload",
+        response_model=UploadResponse,
+        status_code=201,
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["user_type", "document_type", "file"],
+                            "properties": {
+                                "user_type": {
+                                    "type": "string",
+                                    "enum": ["personal", "business"],
+                                },
+                                "document_type": {
+                                    "type": "string",
+                                    "enum": ["bank_statement"],
+                                },
+                                "file": {"type": "string", "format": "binary"},
+                            },
+                        }
+                    }
+                },
+            },
+        },
+    )
     async def upload(
         request: Request,
         access: Annotated[SourceUploadAccess, Depends(get_source_upload_access)],

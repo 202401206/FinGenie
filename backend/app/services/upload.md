@@ -1,107 +1,101 @@
-# Upload orchestration and parser handoff
+# Bank-statement upload orchestration
 
 ## Status on 8 November 2026
 
-The upload service and router factory are tested against a controlled parser.
-The repository checkout and GitHub main tree still contain parser scaffolding.
-The current GitHub branch list has no feature/backend-parsers branch.
+Anshuman merged Dhaval's feature/backend-parsers branch in merge commit 4930cb1.
+The production app now mounts POST /api/upload with the real CSV/XLSX parser.
+Route tests use that production entry point and actual auth/repository/Storage
+helper code, replacing only external Supabase HTTP with synthetic responses.
 
-POST /api/upload remains unmounted until Dhaval's real parser is supplied.
-There is no production parser fallback. This is a tested integration checkpoint,
-with real parser and hosted verification outstanding.
+Hosted migrations, physical Storage operations and the live two-user browser
+demo still require the lead's coordination. Those checks belong to the final
+integration handoff.
 
-## Interfaces
+## Interface and flow
 
-UploadService composes the existing bounded intake, SourceUploadAccess,
-ParsedDocumentRepository, UploadRecoveryService and WorkspaceRepository.
-It does not implement database queries, source cleanup primitives or bank parsing.
+The synchronous parse_bank_statement(content, *, file_kind, document_id)
+function returns Dhaval's BankStatement model and raises
+BankStatementParserError subclasses for supported parser failures. It runs in
+a worker thread. Safe HTTP errors never include parser messages or raw rows.
 
-The supplied synchronous parser receives content bytes, file_kind as csv/xlsx,
-and a generated document_id UUID. It returns a Pydantic model. Run it in a worker
-thread so parsing does not occupy the application's async event loop.
+UploadService uses the existing authenticated SourceUploadAccess,
+ParsedDocumentRepository, UploadRecoveryService and WorkspaceRepository:
 
-The proposed signature is:
+1. Authenticate before reading multipart input, then validate the file.
+2. Generate workspace/document IDs and a Bank statement YYYY-MM-DD UTC name.
+3. Parse the exact bounded bytes with the generated document UUID.
+4. Validate the parsed result through the existing save model. Check the source
+   document ID, 10,000 transaction limit and JSON serialization of all extra
+   fields. model_dump(mode="python") preserves Decimal, dates and UUIDs.
+5. Reserve metadata, upload the same original bytes, then atomically finalize.
+6. Validate the receipt IDs and transaction count, then return the public
+   workspace/document response with 201.
 
-    parse_bank_statement(content: bytes, *, file_kind: str, document_id: UUID)
+The contract response includes public workspace fields plus document id/status.
+It excludes private paths, tokens and parsed financial contents.
 
-BankParseError is the integration boundary for an expected parser rejection.
-Once Dhaval supplies his implementation, adapt his actual model/error types at
-this boundary instead of changing or duplicating his parser. Confirm this
-interface with him before activation.
+## Resource rules and parser corrections
 
-## Successful flow
+Intake caps source bytes at 5 MiB and expanded XLSX at 25 MiB. The ZIP member cap
+is aligned with Dhaval's parser at 500. A separate 20,000 populated-record cap
+per CSV/worksheet bounds structural inspection while allowing preambles,
+footers and covers around the parser's 10,000 actual-transaction cap.
+The default 50-column/cell cap remains. These are working development choices
+for team review. Rows and columns are never silently truncated.
 
-1. Existing dependencies verify the caller and carry the original token.
-2. Manually parse the multipart form after authentication, then validate the file.
-3. Generate SourceAttempt IDs and a Bank statement YYYY-MM-DD name using UTC.
-4. Call the parser with the exact bounded bytes and generated source document ID.
-5. Validate through the existing parsed-save model, matching the source ID and
-   10,000 transaction limit. Check all extra fields are finite, serializable JSON.
-   model_dump(mode="python") keeps Decimal, dates and UUIDs intact.
-6. Reserve metadata, upload the same original bytes, then atomically finalize.
-7. Validate the receipt against the generated IDs and transaction count, then
-   return the public workspace/document response with status 201.
-
-The public response excludes source paths, tokens and parsed financial contents.
-The service creates no owner ID from client input.
+Integration tests found that the parser retained invalid transaction dates in
+unmapped and could save a partial/empty statement. The CSV/XLSX date-error
+handlers now raise when financial cells identify a transaction-shaped row,
+including zero-valued cells and formulas. Padded nonfinancial metadata notes
+remain preserved. This narrow parser correction needs Dhaval's review.
 
 ## Failures and recovery
 
-Intake or parser rejection happens before database or Storage changes. Safe
-errors are returned without parser messages or validation payloads.
+Intake and parser rejection happen before writes. Expected parser failures
+produce safe 422 statement_parse_failed responses.
 
-After reservation starts, known failures call the existing recovery helper once
-with the same attempt and validated parsed data. SourceOutcomeUnknown is handled
-before SourceUnavailable. There are no automatic write retries.
+After reservation starts, known failures invoke the lead's existing recovery
+service once with the original attempt and validated data. SourceOutcomeUnknown
+is handled before SourceUnavailable. There are no automatic write retries.
 
-- Cleaned failures retain the original safe HTTP failure.
-- Pending recovery returns safe 401 or 503 and never reports creation.
-- A confirmed completed recovery can return 201 with the matching receipt.
-- If the reservation response was lost, read owned workspace metadata and check
-  it matches the attempt before constructing the public success response.
-- An invalid normal save receipt triggers reconciliation. A mismatched recovered
-  receipt produces a safe reconciliation error rather than success.
+- Cleaned failures retain the original safe HTTP error.
+- Pending recovery returns 401 or 503.
+- Only a matching confirmed completed save can produce 201.
+- If the reservation response was lost, read the owned workspace and verify
+  its identity/context before constructing the success response.
+- Malformed normal save receipts trigger recovery. Mismatched recovered
+  receipts return a safe reconciliation error.
 
-The existing recovery service owns the database decision, source removal and
-metadata release. This orchestration never deletes metadata directly.
+The existing helper owns source removal and metadata release. The orchestration
+does not perform raw metadata deletes or separate transaction inserts.
 
-Pending errors retain the attempt in the service exception for an authorized
-caller. The HTTP response contains only safe error fields. Secure retention of
-complete attempt/expected parsed context across request termination or a server
-restart still needs the lead's operational design before a hosted demo with
-financial data. No durable reconciliation queue or public retry endpoint is added.
+Secure retention of full pending attempt/expected parsed context across request
+termination or restart still requires the lead's operational design. There is
+no durable reconciliation queue or public retry endpoint.
 
 ## Multipart and CORS
 
-create_upload_router(real_parser) constructs the future route. It reuses the
-existing request-scoped dependencies and requires exactly user_type,
-document_type and one file, rejecting duplicates and extra fields.
+The registered factory requires exactly user_type, document_type and one file.
+It rejects duplicates and extra fields. OpenAPI exposes those multipart fields.
+File parsing uses pinned python-multipart==0.0.33.
 
-Multipart parsing uses the new pinned python-multipart==0.0.33 dependency.
-The router reads no body before authentication. Its ASGI receive guard counts
-actual body bytes regardless of Content-Length and allows the configured file
-limit plus 64 KiB for framing and fields. Multipart fields are bounded to 64 KiB.
-File content still passes the stricter 5 MiB intake limit. Parser-limit failures
-close temporary multipart files and are mapped to safe errors.
+Actual request bytes are bounded to the file limit plus 64 KiB overhead,
+independent of Content-Length. Fields are limited to 64 KiB. Source bytes also
+pass the stricter 5 MiB intake check. Temporary files close on success and
+expected parser/size failures.
 
-CORS permits GET and POST for the existing configured origins. Activating the
-factory still requires a real parser import and router registration in
-app/api/router.py, plus reviewed shared migrations and team interface agreement.
+CORS permits GET and POST only for the existing configured origins.
+The helper still accepts a custom UploadPolicy for unit tests. Increasing
+intake limits does not override independent limits in the real parser.
 
-## Checks and outstanding work
+## Evidence
 
-Tests cover call order, exact bytes and source IDs, Decimal preservation,
-pre-write validation, each write-stage failure, cleanup/unknown/completed
-recovery, malformed receipts, auth, multipart limits, invalid fields and files,
-temporary-file cleanup and CORS.
-
-These tests use synthetic parser results and controlled writers. They do not
-prove compatibility with Dhaval's real bank models, deployed migrations,
-physical Storage operations or the live two-user upload/read demonstration.
-
-Before calling milestone 4 complete, obtain the parser branch/function/error
-contract, adapt and test it, mount the route, and coordinate migration/recovery
-readiness with the lead. Milestone 5 adds the real cross-component evidence.
+Tests cover synthetic real CSV and generated XLSX files, the production route,
+source byte/UUID preservation, exact Decimal values through the atomic-save
+HTTP boundary, user-token separation, 10,000 transactions with metadata,
+malformed dates/formulas, invalid layouts, write order and all recovery states.
+Supabase HTTP is simulated. Hosted RLS/Storage and live demonstration remain
+explicitly unverified.
 
 Dependency reference:
 https://pypi.org/project/python-multipart/0.0.33/

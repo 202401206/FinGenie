@@ -15,7 +15,11 @@ from app.services.source_errors import (
     SourceUnauthorized,
     SourceUnavailable,
 )
-from app.services.upload import BankParseError, UploadProcessingError, UploadService
+from app.services.upload import (
+    BankStatementParserError,
+    UploadProcessingError,
+    UploadService,
+)
 from app.services.upload_validation import DEFAULT_POLICY, UploadValidationError
 from tests.upload_fixtures import UploadHarness
 
@@ -65,7 +69,9 @@ def test_validation_failure_precedes_parser_and_all_writes():
 
 
 def test_parser_rejection_is_safe_and_needs_no_cleanup():
-    harness = UploadHarness(stage="parse", error=BankParseError("private statement"))
+    harness = UploadHarness(
+        stage="parse", error=BankStatementParserError("private statement")
+    )
     with pytest.raises(UploadProcessingError) as caught:
         process(harness)
     assert caught.value.status_code == 422

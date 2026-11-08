@@ -1,6 +1,6 @@
 # V1 endpoint contract plan
 
-Health and the identity endpoint are implemented. Other payloads/status codes below are proposed
+Health, identity, workspace reads and bank-statement uploads are implemented. Later endpoints below are proposed
 conventions for review, not fake routes or promises of an existing API. Endpoint
 names and sprint placement come from the user's request; the PDF specifies the
 upload fields and overall workflow.
@@ -69,8 +69,10 @@ implementation of bank-statement-only CSV/XLSX validation with a 5 MiB source
 limit and 25 MiB expanded-XLSX limit, pending team review. Balance sheets receive
 422 unsupported_document_type from the helper. See the
 [working policy and exact resource caps](../../backend/app/services/upload-validation.md).
-This helper is not yet connected to an HTTP upload route. The broader document
-type plan above includes later balance-sheet support.
+The real upload route now uses Dhaval's CSV/XLSX parser, with 500 ZIP members and
+a 20,000 populated-record intake budget around the 10,000 transaction cap.
+See [upload orchestration](../../backend/app/services/upload.md) for recovery and
+hosted verification status. Balance-sheet uploads remain deferred.
 
 Validate allowed combinations, file type/content, required columns and eventual
 size limit; then parse and validate standardized JSON. Proposed synchronous flow:
