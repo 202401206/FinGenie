@@ -450,3 +450,190 @@ def test_other_users_recovery_cannot_change_the_owners_saved_data(database):
             ).status == "completed"
 
     asyncio.run(run())
+
+
+@pytest.fixture
+def api_database_client(database):
+    """Actual API/parser/repositories/RLS; synthetic Auth and Storage transport."""
+    from fastapi.testclient import TestClient
+
+    from app.core.security import get_auth_client
+    from app.main import app
+
+    server = LocalSupabase(database)
+    previous = app.dependency_overrides.copy()
+
+    async def connection():
+        async with httpx.AsyncClient(
+            base_url="https://synthetic.supabase.co",
+            headers={"apikey": "sb_publishable_synthetic"},
+            transport=httpx.MockTransport(server.handle),
+        ) as client:
+            yield client
+
+    app.dependency_overrides[get_auth_client] = connection
+    try:
+        with TestClient(app) as client:
+            yield client, server
+    finally:
+        app.dependency_overrides = previous
+
+
+def statement_upload(client, content, kind="csv", token="token-a"):
+    mime = (
+        "text/csv"
+        if kind == "csv"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    return client.post(
+        "/api/upload",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"user_type": "personal", "document_type": "bank_statement"},
+        files={"file": (f"synthetic.{kind}", content, mime)},
+    )
+
+
+def layout_bytes(layout, kind):
+    import csv
+    import io
+
+    from openpyxl import Workbook
+
+    name = (
+        "synthetic_bank_statement.csv"
+        if layout == "a"
+        else "synthetic_bank_layout_b.csv"
+    )
+    content = (ROOT / "backend/tests/parsers/fixtures" / name).read_bytes()
+    if kind == "csv":
+        return content
+    book = Workbook()
+    book.active.title = "Synthetic account"
+    for row in csv.reader(io.StringIO(content.decode("utf-8"))):
+        book.active.append(row)
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("layout", ["a", "b"])
+@pytest.mark.parametrize("kind", ["csv", "xlsx"])
+def test_public_upload_reads_and_two_user_isolation(api_database_client, layout, kind):
+    client, server = api_database_client
+    content = layout_bytes(layout, kind)
+    uploaded = statement_upload(client, content, kind)
+    assert uploaded.status_code == 201, uploaded.text
+    workspace_id = uploaded.json()["workspace"]["id"]
+    document_id = uploaded.json()["document"]["id"]
+    headers = {"Authorization": "Bearer token-a"}
+    detail_url = f"/api/workspaces/{workspace_id}"
+
+    details = client.get(detail_url, headers=headers)
+    assert details.status_code == 200
+    assert details.json()["workspace"] == uploaded.json()["workspace"]
+    metadata = details.json()["documents"][0]
+    assert metadata["id"] == document_id
+    assert metadata["status"] == "parsed"
+    assert metadata["currency"] == ("INR" if layout == "a" else "USD")
+    assert metadata["period_start"] == "2026-01-01"
+    assert metadata["period_end"] == "2026-01-31"
+    assert "file_path" not in details.text and "parsed_json" not in details.text
+
+    transactions = client.get(
+        f"{detail_url}/transactions?limit=2&offset=1", headers=headers
+    )
+    assert transactions.status_code == 200
+    page = json.loads(transactions.content, parse_float=Decimal)
+    assert (page["limit"], page["offset"], page["total"]) == (2, 1, 3)
+    assert [row["source_row"] for row in page["items"]] == [7, 8]
+    assert all(row["document_id"] == document_id for row in page["items"])
+    assert page["items"][0]["debit"] == (
+        Decimal("2000") if layout == "a" else Decimal("3500.50")
+    )
+    assert client.get(
+        f"{detail_url}/transactions?offset=50", headers=headers
+    ).json() == {
+        "items": [],
+        "limit": 50,
+        "offset": 50,
+        "total": 3,
+    }
+
+    owned = client.get("/api/workspaces", headers=headers)
+    assert owned.status_code == 200
+    assert workspace_id in {item["id"] for item in owned.json()["items"]}
+    other_headers = {"Authorization": "Bearer token-b"}
+    for url in [detail_url, f"{detail_url}/transactions"]:
+        assert client.get(url, headers=other_headers).status_code == 404
+    foreign_list = client.get("/api/workspaces", headers=other_headers)
+    assert workspace_id not in {item["id"] for item in foreign_list.json()["items"]}
+    assert content in server.files.values()
+
+
+@pytest.mark.parametrize(
+    "fault,status,remaining",
+    [
+        ("finalize_bank_statement", 201, True),
+        ("reserve_source_upload", 503, False),
+        ("upload", 503, False),
+        ("save_failure", 503, False),
+        ("cleanup_failure", 503, True),
+    ],
+)
+def test_public_upload_real_sql_recovery(api_database_client, fault, status, remaining):
+    client, server = api_database_client
+    before = server.query("select id::text from public.workspaces", user=OWNER)["rows"]
+    if fault in {"save_failure", "cleanup_failure"}:
+        server.reject_save = True
+        server.reject_delete = fault == "cleanup_failure"
+    else:
+        server.timeout_after = fault
+    response = statement_upload(client, layout_bytes("a", "csv"))
+    assert response.status_code == status, response.text
+    assert bool(server.files) is remaining
+    after = server.query("select id::text from public.workspaces", user=OWNER)["rows"]
+    assert len(after) - len(before) == (1 if remaining else 0)
+    assert "file_path" not in response.text
+    if status == 201:
+        workspace_id = response.json()["workspace"]["id"]
+        headers = {"Authorization": "Bearer token-a"}
+        page = client.get(
+            f"/api/workspaces/{workspace_id}/transactions", headers=headers
+        )
+        assert page.status_code == 200
+        assert page.json()["total"] == 3
+        return
+    if fault == "cleanup_failure":
+        assert response.json()["detail"]["code"] == "cleanup_required"
+        name = next(iter(server.files))
+        document_id = name.split("/")[2]
+        result = server.query(
+            "select status::text from public.documents where id=$1::uuid",
+            [document_id],
+            OWNER,
+        )
+        assert result["rows"] == [{"status": "failed"}]
+    else:
+        assert response.json()["detail"]["code"] == "upload_unavailable"
+
+
+def test_public_upload_decimal_roundtrip_through_real_postgres(api_database_client):
+    client, _ = api_database_client
+    content = (
+        b"Date,Description,Debit,Credit,Balance\n"
+        b"2026-01-01,Synthetic exact amount,123456789012345.6789,0,-0.1234567890123456789\n"
+    )
+    response = statement_upload(client, content)
+    assert response.status_code == 201
+    workspace_id = response.json()["workspace"]["id"]
+    read = client.get(
+        f"/api/workspaces/{workspace_id}/transactions",
+        headers={"Authorization": "Bearer token-a"},
+    )
+    assert read.status_code == 200
+    assert b"123456789012345.6789" in read.content
+    row = json.loads(read.content, parse_float=Decimal)["items"][0]
+    assert row["debit"] == Decimal("123456789012345.6789")
+    assert row["balance"] == Decimal("-0.1234567890123456789")
+    assert row["credit"] == 0

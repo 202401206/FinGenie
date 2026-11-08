@@ -28,14 +28,18 @@ setup and direct Storage metadata writes exist only in the test harness. Product
 file operations must use the Storage API. JSON payloads travel into PostgreSQL as
 raw text parameters so JavaScript never rounds their monetary numbers.
 
-The eight component tests in
+The component tests in
 `backend/tests/integration/test_persistence_recovery.py` use actual authentication
 verification code, repositories, recovery and Storage helpers. The HTTP adapter
 simulates Auth and Storage responses/bytes while running real SQL and RLS for the
 database operations. It is intentionally limited to the requests under test,
 not a replacement PostgREST/Storage server. These tests skip with a visible reason
 if Node or the npm dependency is missing; install them before claiming integration
-passed. With dependencies installed, the current suite has 218 passing tests.
+passed. Test counts grow with the features on your branch. This module also exercises
+the public upload and workspace APIs with the real CSV/XLSX parser, both
+supported layouts, exact money round trips and two-user ownership. See
+[Sprint 1 API handoff](../../docs/sprint-1-api-handoff.md) for scope and remaining
+hosted checks.
 
 For a full Supabase deployment, separately review migrations, run the SQL suites
 against a dedicated disposable/local test database as postgres, and test actual
