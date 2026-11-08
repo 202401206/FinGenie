@@ -1,7 +1,6 @@
 """Pure bank statement XLSX parser using OpenPyXL with security bounds and exact Decimals."""
 
 import io
-import re
 import zipfile
 from datetime import date, datetime
 from decimal import Decimal
@@ -19,6 +18,7 @@ from app.parsers.bank_statement.csv_parser import (
     _extract_key_values,
     _parse_date,
     _parse_decimal,
+    _parse_period_dates,
 )
 from app.parsers.errors import (
     AmbiguousWorksheetError,
@@ -278,17 +278,9 @@ def parse_bank_statement_xlsx(content: bytes, *, document_id: UUID) -> BankState
                     source_locations["currency"] = SourceLocation(source_row=row_idx)
                     recognized = True
                 elif "period" in k:
-                    period_match = re.search(
-                        r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})",
-                        v or joined_line,
-                    )
-                    if period_match:
-                        period_start = datetime.strptime(
-                            period_match.group(1), "%Y-%m-%d"
-                        ).date()
-                        period_end = datetime.strptime(
-                            period_match.group(2), "%Y-%m-%d"
-                        ).date()
+                    parsed_period = _parse_period_dates(v or joined_line)
+                    if parsed_period:
+                        period_start, period_end = parsed_period
                         source_locations["period_start"] = SourceLocation(
                             source_row=row_idx
                         )
@@ -364,13 +356,22 @@ def parse_bank_statement_xlsx(content: bytes, *, document_id: UUID) -> BankState
         max_required_col = max(header_map.values())
         if len(row) <= max_required_col:
             non_empty_tail = [c for c in str_cells[1:] if c]
+            raw_lbl = str_cells[0] if str_cells else "empty_row"
+            raw_val = (
+                " | ".join(non_empty_tail)
+                if non_empty_tail
+                else (str_cells[0] if str_cells else "")
+            )
+            if (not non_empty_tail) and str_cells and ":" in str_cells[0]:
+                raw_lbl, raw_val = str_cells[0].split(":", 1)
+                raw_lbl = raw_lbl.strip()
+                raw_val = raw_val.strip()
+
             unmapped.append(
                 UnmappedItem(
                     source_row=row_idx,
-                    raw_label=str_cells[0] if str_cells else "empty_row",
-                    raw_value=" | ".join(non_empty_tail)
-                    if non_empty_tail
-                    else (str_cells[0] if str_cells else ""),
+                    raw_label=raw_lbl,
+                    raw_value=raw_val,
                     reason="insufficient_columns_for_transaction",
                 )
             )
