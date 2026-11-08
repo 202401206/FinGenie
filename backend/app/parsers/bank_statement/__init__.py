@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from app.parsers.bank_statement.csv_parser import parse_bank_statement_csv
+from app.parsers.bank_statement.xlsx_parser import parse_bank_statement_xlsx
 from app.parsers.errors import UnsupportedFormatError
 from app.schemas.bank_statement import BankStatement, BankTransaction
 
@@ -25,13 +26,14 @@ def parse_bank_statement(
     Raises:
         UnsupportedFormatError: If file_kind is not supported or layout cannot be parsed.
         InvalidStatementError: If required fields or data types are invalid.
+        AmbiguousWorksheetError: If an XLSX workbook has multiple candidate sheets.
         ResourceLimitError: If statement exceeds row, column, or file size limits.
     """
     kind = file_kind.strip().lower()
     if kind == "csv":
         return parse_bank_statement_csv(content, document_id=document_id)
     elif kind == "xlsx":
-        raise UnsupportedFormatError("XLSX parsing is scheduled for Milestone 3")
+        return parse_bank_statement_xlsx(content, document_id=document_id)
     else:
         raise UnsupportedFormatError(
             f"Unsupported file kind '{file_kind}'; expected 'csv' or 'xlsx'"

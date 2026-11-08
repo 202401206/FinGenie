@@ -201,7 +201,9 @@ class TestBankCSVParserValidationErrors:
         with pytest.raises(UnsupportedFormatError, match="Unsupported file kind"):
             parse_bank_statement(content, file_kind="pdf", document_id=DOC_ID)
 
-        with pytest.raises(UnsupportedFormatError, match="Milestone 3"):
+        with pytest.raises(
+            UnsupportedFormatError, match="File is not a valid XLSX workbook archive"
+        ):
             parse_bank_statement(content, file_kind="xlsx", document_id=DOC_ID)
 
 
