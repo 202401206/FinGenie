@@ -2,7 +2,25 @@
 
 `bank_statement/` parses supported bank statement CSV and XLSX formats; `balance_sheet/` is reserved for Sprint 2.
 
-## Supported Formats & Rules
+## Supported Layouts Matrix
+
+The parser deterministically matches statement tables against reviewed header aliases and date conventions without fuzzy guessing or LLMs:
+
+| Attribute | Layout 1 (Standard Retail / Demo) | Layout 2 (Commercial Statement B) |
+| :--- | :--- | :--- |
+| **Date Column** | `Date`, `Transaction Date`, `Value Date` | `Txn Date`, `Posting Date`, `Trans Date` |
+| **Description Column** | `Description`, `Narration`, `Details` | `Particulars`, `Transaction Details`, `Remarks` |
+| **Debit Column** | `Debit`, `Withdrawal`, `Dr` | `Withdrawal (Dr)`, `Withdrawals (Dr)`, `Dr Amount`, `Debit Amount` |
+| **Credit Column** | `Credit`, `Deposit`, `Cr` | `Deposit (Cr)`, `Deposits (Cr)`, `Cr Amount`, `Credit Amount` |
+| **Balance Column** | `Balance`, `Closing Balance`, `Running Balance` | `Net Balance`, `Available Balance`, `Account Balance` |
+| **Supported Dates** | ISO `YYYY-MM-DD` | Delimited `DD/MM/YYYY`, `DD-MM-YYYY` |
+| **Extra Columns** | Unrecognized extra columns (e.g. `Chq/Ref No`, `Value Date`) do not break column mapping |
+| **Preamble Metadata** | Bank, Account Holder, Type, Currency, Period, Opening Balance | Bank, Account Holder, Type, Currency, Statement Period, Opening Balance |
+| **File Types** | CSV (`.csv`) and XLSX (`.xlsx`) | CSV (`.csv`) and XLSX (`.xlsx`) |
+
+---
+
+## Processing Rules & Security Boundaries
 
 ### 1. CSV Format
 - **Encoding:** UTF-8 and UTF-8 with BOM (`utf-8-sig`).

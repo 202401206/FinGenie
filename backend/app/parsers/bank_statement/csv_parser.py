@@ -28,16 +28,83 @@ MAX_COLUMNS = 50
 REQUIRED_HEADERS = {"date", "description", "debit", "credit", "balance"}
 
 HEADER_ALIASES = {
-    "date": ["date", "txn date", "transaction date", "value date"],
-    "description": ["description", "narration", "particulars", "details", "remarks"],
-    "debit": ["debit", "withdrawal", "dr", "withdrawals"],
-    "credit": ["credit", "deposit", "cr", "deposits"],
-    "balance": ["balance", "closing balance", "running balance"],
+    "date": [
+        "date",
+        "txn date",
+        "transaction date",
+        "value date",
+        "trans date",
+        "posting date",
+    ],
+    "description": [
+        "description",
+        "narration",
+        "particulars",
+        "details",
+        "remarks",
+        "transaction details",
+        "transaction remarks",
+    ],
+    "debit": [
+        "debit",
+        "withdrawal",
+        "dr",
+        "withdrawals",
+        "withdrawal (dr)",
+        "withdrawals (dr)",
+        "dr amount",
+        "debit amount",
+    ],
+    "credit": [
+        "credit",
+        "deposit",
+        "cr",
+        "deposits",
+        "deposit (cr)",
+        "deposits (cr)",
+        "cr amount",
+        "credit amount",
+    ],
+    "balance": [
+        "balance",
+        "closing balance",
+        "running balance",
+        "net balance",
+        "available balance",
+        "account balance",
+    ],
 }
 
 
 def _clean_str(val: str | None) -> str:
     return val.strip() if val else ""
+
+
+def _parse_period_dates(raw: str) -> tuple[date, date] | None:
+    """Extract start and end date from a string containing 'DATE to DATE' (ISO or DD/MM/YYYY)."""
+    # Match ISO: YYYY-MM-DD to YYYY-MM-DD
+    iso_match = re.search(r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})", raw)
+    if iso_match:
+        try:
+            return (
+                datetime.strptime(iso_match.group(1), "%Y-%m-%d").date(),
+                datetime.strptime(iso_match.group(2), "%Y-%m-%d").date(),
+            )
+        except ValueError:
+            pass
+
+    # Match delimited: DD/MM/YYYY to DD/MM/YYYY
+    delim_match = re.search(r"(\d{2}/\d{2}/\d{4})\s+to\s+(\d{2}/\d{2}/\d{4})", raw)
+    if delim_match:
+        try:
+            return (
+                datetime.strptime(delim_match.group(1), "%d/%m/%Y").date(),
+                datetime.strptime(delim_match.group(2), "%d/%m/%Y").date(),
+            )
+        except ValueError:
+            pass
+
+    return None
 
 
 def _parse_decimal(
@@ -228,17 +295,9 @@ def parse_bank_statement_csv(content: bytes, *, document_id: UUID) -> BankStatem
                     )
                     recognized = True
                 elif "period" in k:
-                    period_match = re.search(
-                        r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})",
-                        v or joined_line,
-                    )
-                    if period_match:
-                        period_start = datetime.strptime(
-                            period_match.group(1), "%Y-%m-%d"
-                        ).date()
-                        period_end = datetime.strptime(
-                            period_match.group(2), "%Y-%m-%d"
-                        ).date()
+                    parsed_period = _parse_period_dates(v or joined_line)
+                    if parsed_period:
+                        period_start, period_end = parsed_period
                         source_locations["period_start"] = SourceLocation(
                             source_row=logical_row
                         )
@@ -309,13 +368,22 @@ def parse_bank_statement_csv(content: bytes, *, document_id: UUID) -> BankStatem
         # Check if row has enough columns for required headers
         max_required_col = max(header_map.values())
         if len(clean_record) <= max_required_col:
+            raw_lbl = clean_record[0] if clean_record else "empty_row"
+            raw_val = (
+                " | ".join(clean_record[1:])
+                if len(clean_record) > 1
+                else (clean_record[0] if clean_record else "")
+            )
+            if len(clean_record) == 1 and ":" in clean_record[0]:
+                raw_lbl, raw_val = clean_record[0].split(":", 1)
+                raw_lbl = raw_lbl.strip()
+                raw_val = raw_val.strip()
+
             unmapped.append(
                 UnmappedItem(
                     source_row=logical_row,
-                    raw_label=clean_record[0] if clean_record else "empty_row",
-                    raw_value=" | ".join(clean_record[1:])
-                    if len(clean_record) > 1
-                    else (clean_record[0] if clean_record else ""),
+                    raw_label=raw_lbl,
+                    raw_value=raw_val,
                     reason="insufficient_columns_for_transaction",
                 )
             )
