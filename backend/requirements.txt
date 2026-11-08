@@ -13,3 +13,6 @@ openpyxl>=3.1,<4.0
 
 # Reject DTD/entity-based XML payloads while inspecting XLSX containers.
 defusedxml==0.7.1
+
+# Multipart parsing for the upload router factory.
+python-multipart==0.0.33
