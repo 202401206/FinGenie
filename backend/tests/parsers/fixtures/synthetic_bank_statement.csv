@@ -1,0 +1,10 @@
+Bank: Synthetic Demo Bank
+Account Holder: Synthetic Person,Account Type: savings
+Currency: INR,Period: 2026-01-01 to 2026-01-31
+Opening Balance: 10000
+Date,Description,Debit,Credit,Balance
+2026-01-05,Synthetic salary,0,5000,15000
+2026-01-10,Synthetic rent,2000,0,13000
+2026-01-15,Synthetic groceries,500,0,12500
+Closing Balance: 12500
+Unrecognized export note,Synthetic note only
