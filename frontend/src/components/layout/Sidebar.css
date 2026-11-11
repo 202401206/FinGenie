@@ -1,0 +1,160 @@
+.fg-sidebar {
+  width: 250px;
+  min-width: 250px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-right: 1px solid #e5ebe7;
+  color: #52685c;
+}
+
+.fg-sidebar-brand {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 22px;
+  border-bottom: 1px solid #edf1ee;
+  color: #18352f;
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: -0.6px;
+}
+
+.fg-sidebar-logo {
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #245c48;
+  color: #ffffff;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.fg-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 17px 12px;
+}
+
+.fg-nav-item {
+  width: 100%;
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 10px 13px;
+  border: 0;
+  border-radius: 10px;
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: #66776d;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+}
+
+.fg-nav-item:hover {
+  background: #f3f7f4;
+  color: #245c48;
+}
+
+.fg-nav-item.active {
+  border-left-color: #299467;
+  background: #e7f3eb;
+  color: #245c48;
+  font-weight: 700;
+}
+
+.fg-nav-item svg {
+  flex-shrink: 0;
+}
+
+.fg-sidebar-footer {
+  min-height: 75px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: auto;
+  padding: 13px 17px;
+  border-top: 1px solid #edf1ee;
+}
+
+.fg-account-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e8f3eb;
+  color: #347653;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.fg-account-details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fg-account-details strong {
+  overflow: hidden;
+  color: #30483a;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fg-account-details span {
+  color: #849188;
+  font-size: 10px;
+}
+
+@media (max-width: 760px) {
+  .fg-sidebar {
+    width: 72px;
+    min-width: 72px;
+  }
+
+  .fg-sidebar-brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .fg-sidebar-brand > span {
+    display: none;
+  }
+
+  .fg-sidebar-nav {
+    padding: 15px 9px;
+  }
+
+  .fg-nav-item {
+    justify-content: center;
+    padding: 10px 5px;
+  }
+
+  .fg-nav-item span {
+    display: none;
+  }
+
+  .fg-sidebar-footer {
+    justify-content: center;
+    padding: 12px 5px;
+  }
+
+  .fg-account-details {
+    display: none;
+  }
+}

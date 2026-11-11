@@ -1,4 +1,3 @@
-
 import { useRef, useState } from "react";
 import { uploadBankStatement } from "./uploadService.js";
 import "./UploadPage.css";
@@ -259,7 +258,7 @@ export default function UploadPage() {
 
   return (
     <main className="fg-page">
-      <header className="fg-header">
+      {/* <header className="fg-header">
         <a className="fg-brand" href="/" aria-label="FinGenie home">
           <span className="fg-brand-icon" aria-hidden="true">
             F
@@ -269,6 +268,7 @@ export default function UploadPage() {
 
         <span className="fg-header-label">Financial workspace</span>
       </header>
+      */}
 
       <section className="fg-hero">
         <div className="fg-eyebrow">
@@ -294,7 +294,9 @@ export default function UploadPage() {
           <div>
             <span className="fg-step-label">GET STARTED</span>
             <h2>Upload a bank statement</h2>
-            <p>Select your bank and choose the statement you want to analyze.</p>
+            <p>
+              Select your bank and choose the statement you want to analyze.
+            </p>
           </div>
 
           <div className="fg-document-icon" aria-hidden="true">
@@ -565,9 +567,7 @@ export default function UploadPage() {
           <div>
             <span className="fg-step-label">YOUR WORKSPACE</span>
             <h2>Recent financial analyses</h2>
-            <p>
-              Continue from your previously created financial analyses.
-            </p>
+            <p>Continue from your previously created financial analyses.</p>
           </div>
         </div>
 

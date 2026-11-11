@@ -1,0 +1,56 @@
+
+.fg-app-layout {
+  min-height: 100vh;
+  display: flex;
+  background: #f4f7f5;
+  color: #18352f;
+}
+
+.fg-main-area {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.fg-topbar {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  padding: 12px 30px;
+  border-bottom: 1px solid #e5ebe7;
+  background: #ffffff;
+}
+
+.fg-topbar-page-info h1 {
+  margin: 0;
+  color: #263d32;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.fg-topbar-page-info p {
+  margin: 4px 0 0;
+  color: #7b8b81;
+  font-size: 12px;
+}
+
+.fg-page-content {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  flex: 1;
+  margin: 0;
+  padding: 20px 30px;
+}
+
+@media (max-width: 760px) {
+  .fg-topbar {
+    min-height: 65px;
+    padding: 10px 17px;
+  }
+
+  .fg-page-content {
+    padding: 17px;
+  }
+}

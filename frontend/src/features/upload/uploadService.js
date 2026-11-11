@@ -1,4 +1,3 @@
-
 import { apiRequest } from "../../services/api.js";
 
 // Keep demo mode enabled until the upload API and authentication are ready.
@@ -8,11 +7,7 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-export async function uploadBankStatement({
-  bankName,
-  file,
-  accessToken,
-}) {
+export async function uploadBankStatement({ bankName, file, accessToken }) {
   if (!file) {
     throw new Error("Please select a file.");
   }
