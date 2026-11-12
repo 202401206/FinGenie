@@ -1,4 +1,4 @@
-"""Settings shared by local development and Supabase authentication."""
+"""Settings shared by local development, Supabase authentication, and AI services."""
 
 from pydantic import AnyHttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -40,6 +40,14 @@ class Settings(BaseSettings):
         ):
             raise ValueError("Use a Supabase publishable key, not an elevated key")
         return value
+
+    # --- Groq LLM Configuration ---
+    # SecretStr protects the API key from leaking into server logs or traceback prints
+    groq_api_key: SecretStr | None = None
+    # Default model on Groq: high-reasoning model with native tool calling
+    groq_model: str = "openai/gpt-oss-120b"
+    # Base URL for Groq's OpenAI-compatible chat completions API
+    groq_base_url: str = "https://api.groq.com/openai/v1"
 
     model_config = SettingsConfigDict(
         env_file=".env",
