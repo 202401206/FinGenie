@@ -1,0 +1,58 @@
+{
+  "bank": "Synthetic Demo Bank",
+  "account_holder": "Synthetic Person",
+  "account_type": "savings",
+  "currency": "INR",
+  "period_start": "2026-01-01",
+  "period_end": "2026-01-31",
+  "opening_balance": 10000,
+  "closing_balance": 12500,
+  "transactions": [
+    {
+      "date": "2026-01-05",
+      "description": "Synthetic salary",
+      "debit": 0,
+      "credit": 5000,
+      "balance": 15000,
+      "source_row": 6
+    },
+    {
+      "date": "2026-01-10",
+      "description": "Synthetic rent",
+      "debit": 2000,
+      "credit": 0,
+      "balance": 13000,
+      "source_row": 7
+    },
+    {
+      "date": "2026-01-15",
+      "description": "Synthetic groceries",
+      "debit": 500,
+      "credit": 0,
+      "balance": 12500,
+      "source_row": 8
+    }
+  ],
+  "unmapped": [
+    {
+      "source_row": 10,
+      "raw_label": "Unrecognized export note",
+      "raw_value": "Synthetic note only",
+      "reason": "unknown_metadata"
+    }
+  ],
+  "source_metadata": {
+    "document_id": "10000000-0000-4000-8000-000000000001",
+    "sheet_name": null
+  },
+  "source_locations": {
+    "bank": { "source_row": 1 },
+    "account_holder": { "source_row": 2 },
+    "account_type": { "source_row": 2 },
+    "currency": { "source_row": 3 },
+    "period_start": { "source_row": 3 },
+    "period_end": { "source_row": 3 },
+    "opening_balance": { "source_row": 4 },
+    "closing_balance": { "source_row": 9 }
+  }
+}

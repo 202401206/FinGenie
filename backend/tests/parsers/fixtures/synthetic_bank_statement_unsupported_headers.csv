@@ -1,0 +1,3 @@
+ID,InvoiceNumber,Vendor,Amount,Status
+1,INV-1001,Acme Corp,500.00,Paid
+2,INV-1002,Global Supplies,1200.00,Pending

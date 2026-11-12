@@ -63,9 +63,17 @@ These tests do not prove deployed RLS behavior; `supabase/tests/ownership.sql`
 checks the actual database rules separately. Run a two-user API integration demo
 once routes, parsers and upload persistence are connected.
 
-Write repositories, private Storage helpers and atomic upload persistence are
-upcoming work. No schema migration or hosted project change is required for these
-reads. Do not introduce a generic repository framework.
+`SourceReservationRepository` in `repositories/source_uploads.py` now reserves the
+owned workspace/document pair through one user-scoped RPC. Its separate migration
+and receipt/failure semantics are covered by the [source upload guide](../services/source-uploads.md).
+`ParsedDocumentRepository` now saves bank-statement JSON, metadata and transaction
+rows atomically through a separate RPC. See [parsed-data persistence](parsed-documents.md)
+for input validation, exact JSON, migration requirements and safe failure handling.
+`UploadRecoveryRepository` and its service now reconcile failed attempts before
+controlled cleanup. See [upload recovery](../services/upload-recovery.md) and the
+[local component/SQL tests](../../../supabase/tests/README.md). Public routes and
+the real parser still need integration by their owners. No migration is required
+for the read methods above. Do not introduce a generic repository framework.
 
 Data API references: [pagination and exact counts](https://docs.postgrest.org/en/stable/references/api/pagination_count.html)
 and [Supabase data security](https://supabase.com/docs/guides/database/secure-data).

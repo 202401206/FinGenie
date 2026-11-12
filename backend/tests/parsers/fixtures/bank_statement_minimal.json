@@ -1,0 +1,26 @@
+{
+  "bank": null,
+  "account_holder": null,
+  "account_type": null,
+  "currency": null,
+  "period_start": null,
+  "period_end": null,
+  "opening_balance": null,
+  "closing_balance": null,
+  "transactions": [
+    {
+      "date": "2026-02-01",
+      "description": "Direct deposit",
+      "debit": 0,
+      "credit": 1200.50,
+      "balance": 1200.50,
+      "source_row": 2
+    }
+  ],
+  "unmapped": [],
+  "source_metadata": {
+    "document_id": "20000000-0000-4000-8000-000000000002",
+    "sheet_name": null
+  },
+  "source_locations": {}
+}
