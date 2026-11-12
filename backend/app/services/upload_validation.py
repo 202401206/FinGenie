@@ -14,6 +14,8 @@ from zlib import error as ZlibError
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import fromstring
 
+from app.parsers.bank_statement.xlsx_limits import check_sheet_bounds
+from app.parsers.errors import ResourceLimitError
 from app.schemas.common import DocumentType, UserType
 from app.services.source_models import SourceAttempt, SourceKind
 
@@ -186,6 +188,12 @@ def inspect_csv(content: bytes, policy: UploadPolicy) -> None:
 def inspect_sheet(root, policy: UploadPolicy) -> bool:
     if root.tag != f"{SHEET_NS}worksheet":
         raise invalid_content()
+    try:
+        check_sheet_bounds(
+            root, max_rows=policy.max_records, max_columns=policy.max_columns
+        )
+    except ResourceLimitError:
+        raise resource_limit() from None
     populated_rows = 0
     populated = False
     for row in root.iter(f"{SHEET_NS}row"):

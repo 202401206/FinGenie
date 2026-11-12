@@ -637,3 +637,47 @@ def test_public_upload_decimal_roundtrip_through_real_postgres(api_database_clie
     assert row["debit"] == Decimal("123456789012345.6789")
     assert row["balance"] == Decimal("-0.1234567890123456789")
     assert row["credit"] == 0
+
+
+@pytest.mark.parametrize("kind", ["csv", "xlsx"])
+def test_footer_words_in_narration_survive_the_complete_save_and_read(
+    api_database_client, kind
+):
+    import csv
+    import io
+
+    from openpyxl import Workbook
+
+    client, server = api_database_client
+    rows = [
+        ["Description", "Date", "Debit", "Credit", "Balance"],
+        ["Total petrol purchase", "2026-01-01", "100", "0", "900"],
+        ["Closing balance adjustment", "2026-01-02", "0", "50", "950"],
+        ["Closing Balance: 950"],
+    ]
+    if kind == "csv":
+        text = io.StringIO(newline="")
+        csv.writer(text).writerows(rows)
+        content = text.getvalue().encode()
+    else:
+        book = Workbook()
+        for row in rows:
+            book.active.append(row)
+        output = io.BytesIO()
+        book.save(output)
+        book.close()
+        content = output.getvalue()
+    uploaded = statement_upload(client, content, kind)
+    assert uploaded.status_code == 201, uploaded.text
+    workspace_id = uploaded.json()["workspace"]["id"]
+    page = client.get(
+        f"/api/workspaces/{workspace_id}/transactions",
+        headers={"Authorization": "Bearer token-a"},
+    )
+    assert page.status_code == 200
+    assert page.json()["total"] == 2
+    assert [item["description"] for item in page.json()["items"]] == [
+        row[0] for row in rows[1:3]
+    ]
+    assert [item["source_row"] for item in page.json()["items"]] == [2, 3]
+    assert content in server.files.values()

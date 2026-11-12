@@ -3,10 +3,26 @@
 ## Current status
 
 Uploads and the three workspace routes are implemented. Both parser layouts work
-with CSV and XLSX. The local checks passed with 474 tests and all four SQL suites.
-Lint, formatting and dependency checks also passed.
+with CSV and XLSX. The API branch passed 474 tests before main integration. After
+the merge and parser fixes, the combined backend/AI suite passes 876 tests,
+including 79 new regressions. Lint and formatting pass. The four local SQL suites
+passed during the merge review; the parser fixes do not change database code.
 
 The hosted Supabase demo and teammate reviews are still pending.
+
+## Follow-up after integrating main
+
+The parser corrections now reject incomplete financial CSV rows, ambiguous
+amount headers and boolean XLSX amounts before persistence. Transaction
+descriptions containing Total/Closing balance are preserved. Transaction date
+takes precedence over a separate value date. Sparse worksheet coordinates are
+bounded before workbook loading, including on cover sheets. Regression coverage
+includes actual upload/save/read behavior with embedded PostgreSQL and no-write
+assertions for rejected uploads. See the [parser rules](../backend/app/parsers/README.md)
+and [intake limits](../backend/app/services/upload-validation.md).
+
+These changes need the normal Dhaval/Anshuman peer review. The original hosted
+verification and pending-recovery operational decisions below still apply.
 
 ## Using the API
 

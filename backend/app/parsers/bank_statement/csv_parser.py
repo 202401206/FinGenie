@@ -162,19 +162,83 @@ def _parse_date(raw: str, *, source_row: int) -> date:
 
 
 def _match_header_row(row: list[str]) -> dict[str, int] | None:
-    """Check if row matches required table headers. Returns dict of field_name -> column_index."""
-    col_map: dict[str, int] = {}
+    """Map one clear column per field, with transaction date before value date."""
     normalized_row = [_clean_str(c).lower() for c in row]
-
+    matches: dict[str, list[int]] = {}
     for field_name, aliases in HEADER_ALIASES.items():
-        for idx, col in enumerate(normalized_row):
-            if col in aliases and field_name not in col_map:
-                col_map[field_name] = idx
-                break
+        matches[field_name] = [
+            index for index, column in enumerate(normalized_row) if column in aliases
+        ]
+    if not all(matches.values()):
+        return None
 
-    if REQUIRED_HEADERS.issubset(col_map.keys()):
-        return col_map
+    # Layout B has both dates. Use value date only when it is the sole date field.
+    transaction_dates = [
+        index for index in matches["date"] if normalized_row[index] != "value date"
+    ]
+    if transaction_dates:
+        matches["date"] = transaction_dates
+    col_map = {}
+    for field_name, columns in matches.items():
+        if len(columns) != 1:
+            raise InvalidStatementError(f"Ambiguous {field_name} columns in header")
+        col_map[field_name] = columns[0]
+    return col_map
+
+
+def _footer_label(row: list[str], header_map: dict[str, int]) -> str | None:
+    """Recognize whole summary labels without confusing them with narration."""
+    date_column = header_map["date"]
+    if date_column != 0 and date_column < len(row) and row[date_column].strip():
+        return None
+    label = row[0].partition(":")[0].strip().lower()
+    if label in {
+        "closing balance",
+        "total",
+        "totals",
+        "subtotal",
+        "sub total",
+        "grand total",
+        "total debit",
+        "total debits",
+        "total credit",
+        "total credits",
+        "total withdrawal",
+        "total withdrawals",
+        "total deposit",
+        "total deposits",
+    }:
+        return label
     return None
+
+
+def _has_transaction_data(
+    row: list[str], header_map: dict[str, int], source_row: int
+) -> bool:
+    """A short row with a date or financial cells is an error, not a note."""
+    # Supported free-text notes use one or two cells. Fuller rows need validation.
+    if sum(bool(value.strip()) for value in row) > 2:
+        return True
+    date_column = header_map["date"]
+    if date_column < len(row):
+        try:
+            _parse_date(row[date_column], source_row=source_row)
+            return True
+        except InvalidStatementError:
+            pass
+    for field in ("debit", "credit", "balance"):
+        column = header_map[field]
+        if column >= len(row):
+            continue
+        value = row[column].strip()
+        if value.startswith("="):
+            return True
+        try:
+            Decimal(value.replace(",", "").strip("()"))
+            return True
+        except InvalidOperation:
+            pass
+    return False
 
 
 def _extract_key_values(record: list[str]) -> dict[str, str]:
@@ -334,12 +398,10 @@ def parse_bank_statement_csv(content: bytes, *, document_id: UUID) -> BankStatem
             continue
 
         # Phase 2: Processing rows below table header (transactions, footer, or unmapped)
-        first_cell = clean_record[0].lower()
-
-        # Check for closing balance / footer summary
-        if "closing balance" in first_cell or "total" in first_cell:
+        footer = _footer_label(clean_record, header_map)
+        if footer is not None:
             kv = _extract_key_values(clean_record)
-            closing_key = next((k for k in kv if "closing balance" in k), None)
+            closing_key = "closing balance" if footer == "closing balance" else None
             if closing_key:
                 raw_amt = kv[closing_key]
                 if not raw_amt and len(clean_record) > header_map["balance"]:
@@ -368,6 +430,10 @@ def parse_bank_statement_csv(content: bytes, *, document_id: UUID) -> BankStatem
         # Check if row has enough columns for required headers
         max_required_col = max(header_map.values())
         if len(clean_record) <= max_required_col:
+            if _has_transaction_data(clean_record, header_map, logical_row):
+                raise InvalidStatementError(
+                    f"Missing required transaction columns at row {logical_row}"
+                )
             raw_lbl = clean_record[0] if clean_record else "empty_row"
             raw_val = (
                 " | ".join(clean_record[1:])
@@ -395,7 +461,7 @@ def parse_bank_statement_csv(content: bytes, *, document_id: UUID) -> BankStatem
         raw_credit = clean_record[header_map["credit"]]
         raw_bal = clean_record[header_map["balance"]]
 
-        # If date is not a valid date string, treat as unmapped rather than dropping or crashing
+        # Keep nonfinancial notes; invalid financial rows must reject the upload.
         try:
             tx_date = _parse_date(raw_date, source_row=logical_row)
         except InvalidStatementError:

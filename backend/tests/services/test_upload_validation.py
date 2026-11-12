@@ -340,6 +340,42 @@ def test_xlsx_populated_row_boundary(rows):
         assert caught.value.code == "file_resource_limit"
 
 
+@pytest.mark.parametrize(
+    "row,column,accepted",
+    [(20_000, 50, True), (20_001, 50, False), (20_000, 51, False)],
+)
+def test_xlsx_coordinate_boundaries_include_sparse_rows_and_columns(
+    row, column, accepted
+):
+    book = Workbook()
+    book.active.append(["Date", "Credit"])
+    book.active.append(["2026-01-01", 12])
+    book.active.cell(row=row, column=column, value="Synthetic note")
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    if accepted:
+        inspect_xlsx(output.getvalue(), DEFAULT_POLICY)
+    else:
+        with pytest.raises(UploadValidationError) as caught:
+            inspect_xlsx(output.getvalue(), DEFAULT_POLICY)
+        assert caught.value.code == "file_resource_limit"
+
+
+@pytest.mark.parametrize("coordinate", ["row", "cell"])
+def test_small_declared_dimension_cannot_hide_distant_coordinates(coordinate):
+    with ZipFile(io.BytesIO(xlsx())) as source:
+        worksheet = source.read("xl/worksheets/sheet1.xml")
+    if coordinate == "row":
+        worksheet = worksheet.replace(b'<row r="2">', b'<row r="1048576">')
+    else:
+        worksheet = worksheet.replace(b'r="A2"', b'r="XFD2"')
+    content = edit_zip(xlsx(), {"xl/worksheets/sheet1.xml": worksheet})
+    with pytest.raises(UploadValidationError) as caught:
+        inspect_xlsx(content, DEFAULT_POLICY)
+    assert caught.value.code == "file_resource_limit"
+
+
 def test_empty_workbook_is_rejected():
     with pytest.raises(UploadValidationError):
         inspect_xlsx(xlsx([]), DEFAULT_POLICY)

@@ -5,20 +5,28 @@ import zipfile
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
+from xml.etree.ElementTree import ParseError
 
 import openpyxl
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring
 from openpyxl.cell.cell import Cell
 
 from app.parsers.bank_statement.csv_parser import (
-    HEADER_ALIASES,
     MAX_COLUMNS,
     MAX_SOURCE_BYTES,
     MAX_TRANSACTION_ROWS,
-    REQUIRED_HEADERS,
     _extract_key_values,
+    _footer_label,
+    _has_transaction_data,
+    _match_header_row,
     _parse_date,
     _parse_decimal,
     _parse_period_dates,
+)
+from app.parsers.bank_statement.xlsx_limits import (
+    MAX_WORKSHEET_ROWS,
+    check_sheet_bounds,
 )
 from app.parsers.errors import (
     AmbiguousWorksheetError,
@@ -78,6 +86,14 @@ def validate_xlsx_container(content: bytes) -> None:
                 ):
                     has_workbook = True
 
+                if zinfo.filename.startswith(
+                    "xl/worksheets/"
+                ) and zinfo.filename.endswith(".xml"):
+                    root = fromstring(zf.read(zinfo), forbid_dtd=True)
+                    check_sheet_bounds(
+                        root, max_rows=MAX_WORKSHEET_ROWS, max_columns=MAX_COLUMNS
+                    )
+
             if not has_workbook:
                 raise UnsupportedFormatError(
                     "Corrupted XLSX archive: missing workbook structure"
@@ -85,6 +101,8 @@ def validate_xlsx_container(content: bytes) -> None:
 
     except zipfile.BadZipFile as exc:
         raise UnsupportedFormatError("Malformed or corrupted XLSX file") from exc
+    except (ParseError, DefusedXmlException, ValueError, KeyError, TypeError) as exc:
+        raise UnsupportedFormatError("Invalid XLSX worksheet structure") from exc
 
 
 def _cell_is_formula(cell: Cell) -> bool:
@@ -115,6 +133,11 @@ def _cell_to_decimal(
         )
 
     val = cell.value
+    # bool is a subclass of int in Python, but a checkbox is not a money value.
+    if isinstance(val, bool):
+        raise InvalidStatementError(
+            f"Boolean value is not allowed for {field_name} at row {source_row}"
+        )
     if val is None or val == "":
         raise InvalidStatementError(
             f"Missing required numeric value for {field_name} at row {source_row}"
@@ -173,17 +196,11 @@ def _find_sheet_headers(
     ws: openpyxl.worksheet.worksheet.Worksheet,
 ) -> tuple[int, dict[str, int]] | None:
     """Scan worksheet rows to find matching transaction table headers."""
-    for row_idx, row in enumerate(ws.iter_rows(values_only=False), start=1):
-        if row_idx > 50:  # Bound header search to first 50 rows
-            break
-        row_str_cells = [_cell_to_str(c).lower() for c in row]
-        col_map: dict[str, int] = {}
-        for field_name, aliases in HEADER_ALIASES.items():
-            for col_idx, col in enumerate(row_str_cells):
-                if col in aliases and field_name not in col_map:
-                    col_map[field_name] = col_idx
-                    break
-        if REQUIRED_HEADERS.issubset(col_map.keys()):
+    for row_idx, row in enumerate(
+        ws.iter_rows(max_row=min(ws.max_row, 50), values_only=False), start=1
+    ):
+        col_map = _match_header_row([_cell_to_str(c) for c in row])
+        if col_map is not None:
             return row_idx, col_map
     return None
 
@@ -205,6 +222,8 @@ def parse_bank_statement_xlsx(content: bytes, *, document_id: UUID) -> BankState
     ] = []
 
     for sheet in wb.worksheets:
+        if sheet.max_row > MAX_WORKSHEET_ROWS or sheet.max_column > MAX_COLUMNS:
+            raise ResourceLimitError("Worksheet coordinates exceed processing limits.")
         # Ignore empty sheets
         if sheet.max_row is None or sheet.max_row == 0:
             continue
@@ -321,12 +340,10 @@ def parse_bank_statement_xlsx(content: bytes, *, document_id: UUID) -> BankState
             continue
 
         # Phase 2: Transaction rows & footer rows (below header_row_idx)
-        first_cell_lower = str_cells[0].lower()
-
-        # Check for closing balance / footer summary
-        if "closing balance" in first_cell_lower or "total" in first_cell_lower:
+        footer = _footer_label(str_cells, header_map)
+        if footer is not None:
             kv = _extract_key_values(str_cells)
-            closing_key = next((k for k in kv if "closing balance" in k), None)
+            closing_key = "closing balance" if footer == "closing balance" else None
             if closing_key:
                 raw_amt = kv[closing_key]
                 if not raw_amt and len(row) > header_map["balance"]:
@@ -355,6 +372,10 @@ def parse_bank_statement_xlsx(content: bytes, *, document_id: UUID) -> BankState
 
         max_required_col = max(header_map.values())
         if len(row) <= max_required_col:
+            if _has_transaction_data(str_cells, header_map, row_idx):
+                raise InvalidStatementError(
+                    f"Missing required transaction columns at row {row_idx}"
+                )
             non_empty_tail = [c for c in str_cells[1:] if c]
             raw_lbl = str_cells[0] if str_cells else "empty_row"
             raw_val = (
@@ -389,8 +410,8 @@ def parse_bank_statement_xlsx(content: bytes, *, document_id: UUID) -> BankState
         except InvalidStatementError:
             # iter_rows pads metadata rows with empty cells. Keep those notes,
             # but reject malformed dates/formulas on rows with financial values.
-            if any(
-                cell.value not in (None, "")
+            if _has_transaction_data(str_cells, header_map, row_idx) or any(
+                isinstance(cell.value, bool)
                 for cell in (debit_cell, credit_cell, balance_cell)
             ):
                 raise

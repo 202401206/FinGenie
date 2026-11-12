@@ -236,3 +236,92 @@ def test_upload_openapi_exposes_the_actual_multipart_fields():
     schema = operation["requestBody"]["content"]["multipart/form-data"]["schema"]
     assert schema["required"] == ["user_type", "document_type", "file"]
     assert schema["properties"]["file"]["format"] == "binary"
+
+
+def workbook_bytes(rows):
+    book = Workbook()
+    for row in rows:
+        book.active.append(row)
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("valid_row_first", [False, True])
+def test_incomplete_financial_csv_rejects_before_any_write(
+    real_upload, valid_row_first
+):
+    client, state = real_upload
+    content = b"Date,Description,Debit,Credit,Balance\n"
+    if valid_row_first:
+        content += b"2026-01-01,Valid rent,100,0,900\n"
+    content += b"2026-01-02,private missing balance,100,0\n"
+    response = post(client, content)
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "statement_parse_failed"
+    assert state["events"] == []
+    assert "private" not in response.text
+
+
+@pytest.mark.parametrize("kind", ["csv", "xlsx"])
+@pytest.mark.parametrize("duplicate", ["Debit", "Deposit (Cr)", "Net Balance"])
+def test_ambiguous_amount_headers_reject_before_any_write(real_upload, kind, duplicate):
+    client, state = real_upload
+    rows = [
+        ["Date", "Description", "Debit", "Credit", "Balance", duplicate],
+        ["2026-01-01", "private", "100", "0", "900", "777"],
+    ]
+    if kind == "xlsx":
+        content = workbook_bytes(rows)
+    else:
+        output = io.StringIO(newline="")
+        csv.writer(output).writerows(rows)
+        content = output.getvalue().encode()
+    response = post(client, content, kind=kind)
+    assert response.status_code == 422
+    assert state["events"] == []
+    assert "private" not in response.text
+
+
+@pytest.mark.parametrize("value", [True, False])
+@pytest.mark.parametrize("column", [2, 3, 4])
+def test_boolean_financial_cells_reject_before_any_write(real_upload, value, column):
+    client, state = real_upload
+    row = ["2026-01-01", "private", 100, 0, 900]
+    row[column] = value
+    content = workbook_bytes(
+        [["Date", "Description", "Debit", "Credit", "Balance"], row]
+    )
+    response = post(client, content, kind="xlsx")
+    assert response.status_code == 422
+    assert state["events"] == []
+    assert "private" not in response.text
+
+
+@pytest.mark.parametrize("cover", [False, True])
+@pytest.mark.parametrize("row,column", [(1_048_576, 1), (3, 16_384)])
+def test_sparse_workbooks_reject_before_cell_loading_or_writes(
+    real_upload, monkeypatch, cover, row, column
+):
+    client, state = real_upload
+    book = Workbook()
+    book.active.append(["Date", "Description", "Debit", "Credit", "Balance"])
+    book.active.append(["2026-01-01", "private", 100, 0, 900])
+    sheet = book.create_sheet("Cover") if cover else book.active
+    sheet.cell(row=row, column=column, value="private distant note")
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Intake must reject oversized coordinates before loading cells.")
+
+    monkeypatch.setattr(
+        "app.parsers.bank_statement.xlsx_parser.openpyxl.load_workbook", unexpected
+    )
+    response = post(client, output.getvalue(), kind="xlsx")
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "file_resource_limit"
+    assert state["events"] == []
+    assert "private" not in response.text

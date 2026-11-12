@@ -15,6 +15,12 @@ not claim a team-wide approval or a deployed Storage configuration.
   separate conservative cap of 20,000 populated CSV records/worksheet rows,
   including headers, preambles, covers and footers. CSV fields and populated
   XLSX cells per row are capped at 50.
+- XLSX worksheet coordinates are also bounded to row 20,000 and column 50 (AX)
+  on every sheet, including covers, blank gaps and styled cells. A small file
+  with a distant cell is rejected before workbook loading. Both declared
+  dimensions and actual row/cell references are checked; a false dimension does
+  not bypass this limit. Custom policies can narrow the intake coordinate bounds;
+  the parser retains its independent default ceiling.
 - XLSX archives have at most 500 members, aligned with Dhaval's parser.
 - Balance sheets are deferred and yield 422 unsupported_document_type in this
   helper. The broader endpoint plan still lists balance sheets for later work.
