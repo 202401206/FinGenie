@@ -22,7 +22,7 @@ jobs:
 
       - name: Run Unit & Contract Tests
         run: |
-          if [ -d "frontend" ]; then
+          if [ -d 'frontend' ]; then
             cd frontend
           fi
           node --test tests/*.test.js

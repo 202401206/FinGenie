@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename);
 const testFiles = [
   'tests/contract.test.js',
   'tests/formatters.test.js',
-  'tests/auth.test.js'
+  'tests/auth.test.js',
+  'tests/api.test.js'
 ];
 
 const testProcess = spawn(process.execPath, ['--test', ...testFiles], {
