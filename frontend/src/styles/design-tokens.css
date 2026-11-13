@@ -1,0 +1,130 @@
+/**
+ * FinGenie Design System Tokens
+ * Palette engineered for trust, clarity, and precision in Indian Fintech
+ */
+
+:root {
+  /* Brand & Semantic Colors */
+  --fg-forest-green: #10251E;
+  --fg-emerald-green: #1D8A60;
+  --fg-emerald-hover: #15734E;
+  --fg-pale-mint: #E7F4EC;
+  --fg-warm-white: #F5F7F5;
+  --fg-pure-white: #FFFFFF;
+  --fg-charcoal: #202923;
+  --fg-muted-grey: #68746D;
+  --fg-light-grey-green: #E1E8E2;
+  --fg-soft-red: #C94C4C;
+  --fg-soft-red-light: #FDF2F2;
+  --fg-amber: #D99A32;
+  --fg-amber-light: #FEF9EE;
+
+  /* Typography Scale */
+  --font-family-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-size-kpi: 32px;
+  --font-size-h1: 28px;
+  --font-size-h2: 20px;
+  --font-size-card-title: 15px;
+  --font-size-body: 14px;
+  --font-size-caption: 12px;
+  --font-size-micro: 11px;
+
+  /* Line Heights */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.65;
+
+  /* Spacing Grid (8px base) */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+
+  /* Layout Constants */
+  --sidebar-width: 240px;
+  --topbar-height: 70px;
+  --content-max-width: 1440px;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-card: 14px;
+  --radius-pill: 9999px;
+
+  /* Elevation Shadows (Restrained & Sophisticated) */
+  --shadow-subtle: 0 1px 3px rgba(16, 37, 30, 0.04), 0 1px 2px rgba(16, 37, 30, 0.02);
+  --shadow-card: 0 2px 8px rgba(16, 37, 30, 0.05), 0 1px 2px rgba(16, 37, 30, 0.03);
+  --shadow-floating: 0 10px 25px -5px rgba(16, 37, 30, 0.08), 0 8px 10px -6px rgba(16, 37, 30, 0.04);
+  --shadow-drawer: -4px 0 24px rgba(16, 37, 30, 0.12);
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Base resets & typography */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--fg-warm-white);
+  color: var(--fg-charcoal);
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reusable card surfaces */
+.fg-card {
+  background: var(--fg-pure-white);
+  border: 1px solid var(--fg-light-grey-green);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.fg-card:hover {
+  border-color: rgba(29, 138, 96, 0.3);
+}
+
+/* Badges and status pills */
+.badge-credit {
+  background-color: var(--fg-pale-mint);
+  color: var(--fg-emerald-green);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+}
+
+.badge-debit {
+  background-color: var(--fg-soft-red-light);
+  color: var(--fg-soft-red);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+}
+
+.badge-upi {
+  background-color: #EEF2FF;
+  color: #4F46E5;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+}
+
+.badge-neft {
+  background-color: #FEF3C7;
+  color: #92400E;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+}
