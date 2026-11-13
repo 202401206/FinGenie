@@ -1,6 +1,6 @@
 # V1 endpoint contract plan
 
-Only health is implemented. All other payloads/status codes below are proposed
+Health, identity, workspace reads and bank-statement uploads are implemented. Later endpoints below are proposed
 conventions for review, not fake routes or promises of an existing API. Endpoint
 names and sprint placement come from the user's request; the PDF specifies the
 upload fields and overall workflow.
@@ -8,6 +8,7 @@ upload fields and overall workflow.
 | Sprint | Method | Path | Success |
 | --- | --- | --- | --- |
 | Initial | GET | `/api/health` | 200 |
+| 1 foundation | GET | `/api/me` | 200 |
 | 1 | POST | `/api/upload` | 201 |
 | 1 | GET | `/api/workspaces` | 200 |
 | 1 | GET | `/api/workspaces/{id}` | 200 |
@@ -43,12 +44,35 @@ by original `source_row ASC, id ASC`. Pagination and IDs are proposed convention
 
 This is a liveness check only. It does not connect to any external service.
 
+## Sprint 1 foundation: current user
+
+`GET /api/me` requires `Authorization: Bearer <Supabase access token>`.
+FastAPI checks the token with the project's Supabase Auth server at `/auth/v1/user`.
+It does not decode and trust a client-supplied user ID or JWT payload.
+
+200 response: `{"id":"20000000-0000-4000-8000-000000000001"}` (synthetic example).
+Only the verified user UUID is returned, with no email, token or user metadata.
+Missing, malformed, invalid or expired tokens return 401 and `WWW-Authenticate: Bearer`.
+Missing server configuration, an unavailable Auth service or malformed upstream
+responses return 503 `auth_unavailable`, without upstream error details.
+This endpoint does not replace Supabase's signup/login API.
+
 ## Sprint 1: upload and workspaces
 
 `POST /api/upload`: multipart fields `user_type` (`personal`/`business`),
 `document_type` (`bank_statement`/`balance_sheet`), `file` (CSV/XLSX bytes).
 No client-provided owner ID. The browser sets the multipart boundary; callers
 using FormData must not manually set `Content-Type`.
+
+**Milestone 3 working intake policy (7 November 2026):** Anshuman authorized
+implementation of bank-statement-only CSV/XLSX validation with a 5 MiB source
+limit and 25 MiB expanded-XLSX limit, pending team review. Balance sheets receive
+422 unsupported_document_type from the helper. See the
+[working policy and exact resource caps](../../backend/app/services/upload-validation.md).
+The real upload route now uses Dhaval's CSV/XLSX parser, with 500 ZIP members and
+a 20,000 populated-record intake budget around the 10,000 transaction cap.
+See [upload orchestration](../../backend/app/services/upload.md) for recovery and
+hosted verification status. Balance-sheet uploads remain deferred.
 
 Validate allowed combinations, file type/content, required columns and eventual
 size limit; then parse and validate standardized JSON. Proposed synchronous flow:
@@ -253,5 +277,5 @@ responses. Do not log validation payloads containing private financial content.
 | 502/503 | AI validation/provider failure or temporarily unavailable dependency |
 
 Unexpected errors must not expose stack traces, tokens, account numbers or raw
-rows to clients. The foundation does not implement domain error handling, auth,
-rate limits or provider integrations.
+rows to clients. The identity endpoint implements sanitized auth errors. Upload/domain
+errors, rate limits and provider integrations are not implemented yet.
