@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useAuth } from './hooks/useAuth.js';
 import { LoginPage } from './features/auth/LoginPage.jsx';
 import { SignUpPage } from './features/auth/SignUpPage.jsx';
 import { TransactionHistoryPage } from './features/transactions/TransactionHistoryPage.jsx';
@@ -6,7 +7,6 @@ import { TransactionDetailDrawer } from './features/transactions/TransactionDeta
 import { Sidebar } from './components/layout/Sidebar.jsx';
 import { TopNav } from './components/layout/TopNav.jsx';
 import { adaptTransactionList } from './utils/transactionAdapter.js';
-import { supabase, signOutUser } from './services/auth.js';
 
 const DEMO_TRANSACTIONS = [
   { id: '1', date: '2026-10-24', description: 'UPI/Zomato Media Ltd/Order-94821', debit: 649.00, credit: null, balance: 142350.50, source_row: 142 },
@@ -15,60 +15,45 @@ const DEMO_TRANSACTIONS = [
 ];
 
 export function App() {
-  const [view, setView] = useState('login'); // 'login' | 'signup' | 'app'
+  const { session, user, loading, signOut } = useAuth();
+  const [view, setView] = useState('app'); // 'app' | 'signup'
   const [activeTab, setActiveTab] = useState('transactions');
-  const [session, setSession] = useState(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
 
-  useEffect(() => {
-    if (supabase) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          setSession(session);
-          setView('app');
-        }
-      });
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session) {
-          setSession(session);
-          setView('app');
-        } else if (!isDemoMode) {
-          setSession(null);
-          setView('login');
-        }
-      });
-      return () => subscription.unsubscribe();
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+        <div>Loading FinGenie authentication...</div>
+      </div>
+    );
+  }
+
+  // If not logged in and not explicitly in demo mode, show Login/Signup
+  if (!session && !isDemoMode) {
+    if (view === 'signup') {
+      return (
+        <SignUpPage
+          onSignUpSuccess={() => setView('app')}
+          onNavigateLogin={() => setView('app')}
+        />
+      );
     }
-  }, [isDemoMode]);
-
-  const handleLogout = async () => {
-    await signOutUser();
-    setSession(null);
-    setIsDemoMode(false);
-    setView('login');
-  };
-
-  const adaptedList = adaptTransactionList(DEMO_TRANSACTIONS, { filename: 'HDFC_Statement_Oct2026.csv', currency: 'INR' });
-
-  if (view === 'login') {
     return (
       <LoginPage
-        onLoginSuccess={(sess) => { setSession(sess); setView('app'); }}
-        onEnableDemoMode={() => { setIsDemoMode(true); setView('app'); }}
+        onLoginSuccess={() => setView('app')}
+        onEnableDemoMode={() => setIsDemoMode(true)}
         onNavigateSignUp={() => setView('signup')}
       />
     );
   }
 
-  if (view === 'signup') {
-    return (
-      <SignUpPage
-        onSignUpSuccess={(sess) => { setSession(sess); setView('app'); }}
-        onNavigateLogin={() => setView('login')}
-      />
-    );
-  }
+  const handleLogout = async () => {
+    setIsDemoMode(false);
+    await signOut();
+  };
+
+  const adaptedList = adaptTransactionList(DEMO_TRANSACTIONS, { filename: 'HDFC_Statement_Oct2026.csv', currency: 'INR' });
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
@@ -76,7 +61,7 @@ export function App() {
         activeTab={activeTab}
         onNavigate={setActiveTab}
         onLogout={handleLogout}
-        user={session?.user || (isDemoMode ? { email: 'Demo User (Preview)' } : null)}
+        user={user || (isDemoMode ? { email: 'Demo Mode (Preview)' } : null)}
       />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <TopNav title={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} documentName="HDFC_Statement_Oct2026.csv" />

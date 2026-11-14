@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { signUpUser, isLiveSupabase } from '../../services/auth.js';
+import { useAuth } from '../../hooks/useAuth.js';
+import { isLiveSupabase } from '../../services/auth.js';
 
 export const INDIAN_BANKS = [
   { id: 'sbi', name: 'State Bank of India', code: 'SBI' },
@@ -12,6 +13,7 @@ export const INDIAN_BANKS = [
 ];
 
 export function SignUpPage({ onSignUpSuccess, onNavigateLogin }) {
+  const { signUp } = useAuth();
   const [step, setStep] = useState(1);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -20,6 +22,7 @@ export function SignUpPage({ onSignUpSuccess, onNavigateLogin }) {
   const [selectedBank, setSelectedBank] = useState('hdfc');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isConfirmationNotice, setIsConfirmationNotice] = useState(false);
 
   const handleCreate = async () => {
     setError('');
@@ -27,18 +30,42 @@ export function SignUpPage({ onSignUpSuccess, onNavigateLogin }) {
 
     try {
       if (!isLiveSupabase) {
-        // Fallback demo signup
-        onSignUpSuccess && onSignUpSuccess({ user: { email, full_name: fullName } });
+        onSignUpSuccess && onSignUpSuccess();
         return;
       }
-      const data = await signUpUser({ email, password, fullName });
-      onSignUpSuccess && onSignUpSuccess(data.session);
+      const data = await signUp({ email, password, fullName });
+      // If email confirmation is enabled on Supabase project
+      if (data?.user && !data.session) {
+        setIsConfirmationNotice(true);
+      } else {
+        onSignUpSuccess && onSignUpSuccess();
+      }
     } catch (err) {
       setError(err.message || 'Signup failed.');
     } finally {
       setLoading(false);
     }
   };
+
+  if (isConfirmationNotice) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--fg-warm-white)', padding: '24px' }}>
+        <div className="fg-card" style={{ width: '100%', maxWidth: '440px', padding: '36px', textAlign: 'center' }}>
+          <div style={{ fontSize: '36px', marginBottom: '12px' }}>✉️</div>
+          <h2 style={{ margin: '0 0 8px 0', fontSize: '20px' }}>Confirm your email</h2>
+          <p style={{ color: 'var(--fg-muted-grey)', fontSize: '14px', lineHeight: 1.5 }}>
+            A confirmation link has been sent to <strong>{email}</strong>. Please check your inbox and verify your email to log in.
+          </p>
+          <button
+            onClick={onNavigateLogin}
+            style={{ marginTop: '16px', background: 'var(--fg-emerald-green)', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--fg-warm-white)', padding: '24px' }}>

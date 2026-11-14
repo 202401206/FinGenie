@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { signIn, signInWithGoogle, isLiveSupabase } from '../../services/auth.js';
+import { useAuth } from '../../hooks/useAuth.js';
+import { signInWithGoogle, isLiveSupabase } from '../../services/auth.js';
 
 export function LoginPage({ onLoginSuccess, onEnableDemoMode, onNavigateSignUp }) {
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -14,10 +16,10 @@ export function LoginPage({ onLoginSuccess, onEnableDemoMode, onNavigateSignUp }
 
     try {
       if (!isLiveSupabase) {
-        throw new Error('Supabase URL/Key is not set. Please click "Explore in Demo Mode" below.');
+        throw new Error('Supabase URL/Key is not configured. Click "Explore in Demo Mode" below.');
       }
-      const data = await signIn({ email, password });
-      onLoginSuccess && onLoginSuccess(data.session);
+      await signIn({ email, password });
+      onLoginSuccess && onLoginSuccess();
     } catch (err) {
       setError(err.message || 'Login failed.');
     } finally {
