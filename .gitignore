@@ -28,6 +28,9 @@ coverage/
 uploads/
 samples/private/
 
+# Personal plans, handoff drafts and other local working documents
+/local-only/
+
 # Editors / OS
 .idea/
 .vscode/

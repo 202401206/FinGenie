@@ -1,0 +1,26 @@
+{
+  "bank": "Invalid Dates Bank",
+  "account_holder": "Synthetic Person",
+  "account_type": "savings",
+  "currency": "INR",
+  "period_start": "2026-02-28",
+  "period_end": "2026-01-01",
+  "opening_balance": 1000,
+  "closing_balance": 1000,
+  "transactions": [
+    {
+      "date": "2026-01-15",
+      "description": "Mid-month payment",
+      "debit": 0,
+      "credit": 500,
+      "balance": 1500,
+      "source_row": 5
+    }
+  ],
+  "unmapped": [],
+  "source_metadata": {
+    "document_id": "30000000-0000-4000-8000-000000000003",
+    "sheet_name": null
+  },
+  "source_locations": {}
+}

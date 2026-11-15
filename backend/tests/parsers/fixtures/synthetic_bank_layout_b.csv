@@ -1,0 +1,10 @@
+Bank: Commercial Apex Bank
+Account Holder: Global Trading Corp,Account Type: current
+Currency: USD,Statement Period: 01/01/2026 to 31/01/2026
+Opening Balance: 25000.00
+Txn Date,Value Date,Particulars,Chq/Ref No,Withdrawal (Dr),Deposit (Cr),Net Balance
+05/01/2026,05/01/2026,Client invoice settlement,REF10023,,15000.00,40000.00
+12/01/2026,12/01/2026,Office supplies vendor,CHQ00987,3500.50,,36499.50
+25/01/2026,25/01/2026,Cloud hosting server,TXN99481,499.50,,36000.00
+Closing Balance: 36000.00
+Notice: End of monthly statement summary
