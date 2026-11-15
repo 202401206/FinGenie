@@ -1,26 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
+/**
+ * FinGenie Authentication Helpers
+ * Re-exports the unified Supabase client and provides authentication actions
+ */
+import { supabase, isLiveSupabase } from './supabase.js';
 
-const getEnv = (key) => {
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-    return import.meta.env[key];
-  }
-  return '';
-};
-
-const supabaseUrl = getEnv('VITE_SUPABASE_URL');
-const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
-
-export const isLiveSupabase = Boolean(
-  supabaseUrl && 
-  supabaseAnonKey && 
-  !supabaseUrl.includes('your-project-ref')
-);
-
-export const supabase = isLiveSupabase ? createClient(supabaseUrl, supabaseAnonKey) : null;
+export { supabase, isLiveSupabase };
 
 export async function signIn({ email, password }) {
   if (!supabase) {
-    throw new Error('Supabase is not configured. Enable Demo Mode to preview.');
+    throw new Error('Supabase is not configured. Check your frontend/.env file.');
   }
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
@@ -29,7 +17,7 @@ export async function signIn({ email, password }) {
 
 export async function signUpUser({ email, password, fullName }) {
   if (!supabase) {
-    throw new Error('Supabase is not configured. Enable Demo Mode to preview.');
+    throw new Error('Supabase is not configured. Check your frontend/.env file.');
   }
   const { data, error } = await supabase.auth.signUp({
     email,
