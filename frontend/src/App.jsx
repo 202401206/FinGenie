@@ -2,7 +2,6 @@ import { useState } from "react";
 
 import UploadPage from "./features/upload/UploadPage.jsx";
 import SettingsPage from "./features/settings/SettingsPage.jsx";
-
 import AppLayout from "./components/layout/AppLayout.jsx";
 
 function PlaceholderPage({ title, description }) {
@@ -18,7 +17,7 @@ function PlaceholderPage({ title, description }) {
   );
 }
 
-export default function App() {
+function App() {
   const [activePage, setActivePage] = useState("home");
 
   function renderPage() {
@@ -72,3 +71,7 @@ export default function App() {
     </AppLayout>
   );
 }
+
+// Support both named and default imports.
+export { App };
+export default App;

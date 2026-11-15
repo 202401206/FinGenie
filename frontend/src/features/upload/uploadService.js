@@ -1,19 +1,26 @@
-import { apiRequest } from "../../services/api.js";
+import {
+  uploadBankStatement as uploadStatementRequest,
+  getWorkspaces as getWorkspacesRequest,
+} from "../../services/api.js";
 
-// Keep demo mode enabled until the upload API and authentication are ready.
-const USE_MOCK_UPLOAD = true;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MiB
 
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-export async function uploadBankStatement({ bankName, file, accessToken }) {
-  if (!file) {
-    throw new Error("Please select a file.");
+/**
+ * Validate and upload a bank statement.
+ *
+ * Uses the shared API client for:
+ * - Backend URL
+ * - Supabase access token
+ * - Multipart request
+ * - Backend error handling
+ */
+export async function uploadBankStatement({ userType, file }) {
+  if (!["personal", "business"].includes(userType)) {
+    throw new Error("Please select Personal or Business account type.");
   }
 
-  if (!bankName?.trim()) {
-    throw new Error("Please enter the bank name.");
+  if (!file) {
+    throw new Error("Please select a bank statement first.");
   }
 
   const fileName = file.name.toLowerCase();
@@ -26,43 +33,27 @@ export async function uploadBankStatement({ bankName, file, accessToken }) {
     throw new Error("The selected file is empty.");
   }
 
-  if (USE_MOCK_UPLOAD) {
-    // Simulate network latency without sending or storing the selected file.
-    await delay(800);
-
-    return {
-      demo: true,
-      workspace: {
-        id: "demo-workspace",
-        name: `${bankName.trim()} statement`,
-        bank_name: bankName.trim(),
-        document_type: "bank_statement",
-        created_at: new Date().toISOString(),
-      },
-      document: {
-        id: "demo-document",
-        status: "mocked",
-      },
-    };
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error("File size exceeds the 5 MiB limit.");
   }
 
-  if (!accessToken) {
-    throw new Error("Sign in before uploading your bank statement.");
+  // The shared API client handles the actual authenticated upload.
+  return uploadStatementRequest(file, userType);
+}
+
+/**
+ * Fetch the current user's recent workspaces.
+ *
+ * Backend supports limit 1-100 and offset >= 0.
+ */
+export async function getWorkspaces({ limit = 50, offset = 0 } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error("Workspace limit must be between 1 and 100.");
   }
 
-  const formData = new FormData();
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error("Workspace offset cannot be negative.");
+  }
 
-  formData.append("bank_name", bankName.trim());
-  formData.append("document_type", "bank_statement");
-  formData.append("file", file);
-
-  // Do not manually set Content-Type.
-  // The browser supplies the multipart boundary.
-  return apiRequest("/upload", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: formData,
-  });
+  return getWorkspacesRequest(limit, offset);
 }
