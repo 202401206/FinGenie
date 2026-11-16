@@ -11,6 +11,7 @@ from pydantic import BaseModel, SecretStr, ValidationError
 from app.db.errors import (
     DatabaseUnauthorized,
     DatabaseUnavailable,
+    DocumentNotReady,
     UnsupportedDocumentType,
     WorkspaceNotFound,
 )
@@ -20,6 +21,12 @@ from app.db.models import (
     TransactionRecord,
     WorkspaceDetails,
     WorkspaceRecord,
+)
+from app.db.parsed_models import ParsedBankStatement
+from app.db.parsed_read_models import (
+    ParsedBalanceSheet,
+    ParsedDocumentContext,
+    StoredParsedDocument,
 )
 from app.schemas.common import DocumentType
 
@@ -56,7 +63,7 @@ class WorkspaceRepository:
         )
         return self._page(response, WorkspaceRecord, limit, offset)
 
-    async def get_workspace(self, workspace_id: UUID) -> WorkspaceDetails:
+    async def _get_owned_workspace(self, workspace_id: UUID) -> WorkspaceRecord:
         response = await self._get(
             "workspaces",
             {
@@ -71,6 +78,10 @@ class WorkspaceRepository:
             raise WorkspaceNotFound()
         if len(workspaces) != 1 or workspaces[0].id != workspace_id:
             raise DatabaseUnavailable()
+        return workspaces[0]
+
+    async def get_workspace(self, workspace_id: UUID) -> WorkspaceDetails:
+        workspace = await self._get_owned_workspace(workspace_id)
 
         # Resolve the owned parent before querying any of its children. RLS also
         # applies to every request, including if ownership changes between reads.
@@ -81,7 +92,42 @@ class WorkspaceRepository:
         documents = self._records(response, DocumentMetadata)
         if len(documents) > 1:  # V1 enforces one document per workspace.
             raise DatabaseUnavailable()
-        return WorkspaceDetails(workspace=workspaces[0], documents=documents)
+        return WorkspaceDetails(workspace=workspace, documents=documents)
+
+    async def get_parsed_document(self, workspace_id: UUID) -> ParsedDocumentContext:
+        """Read a completed result only after resolving its owned workspace."""
+        workspace = await self._get_owned_workspace(workspace_id)
+        response = await self._get(
+            "documents",
+            {
+                "select": "id,workspace_id,status,parsed_json",
+                "workspace_id": f"eq.{workspace_id}",
+            },
+        )
+        documents = self._records(response, StoredParsedDocument)
+        if len(documents) > 1:
+            raise DatabaseUnavailable()
+        if not documents:
+            raise DocumentNotReady()
+        document = documents[0]
+        if document.workspace_id != workspace_id:
+            raise DatabaseUnavailable()
+        if document.status != "parsed" or document.parsed_json is None:
+            raise DocumentNotReady()
+
+        # Choose from the owned workspace's type, not a user-provided type hint.
+        model = (
+            ParsedBankStatement
+            if workspace.document_type == DocumentType.BANK_STATEMENT
+            else ParsedBalanceSheet
+        )
+        try:
+            parsed = model.model_validate(document.parsed_json)
+            if parsed.source_metadata.document_id != document.id:
+                raise ValueError()
+        except ValueError:
+            raise DatabaseUnavailable() from None
+        return ParsedDocumentContext(workspace, document.id, parsed)
 
     async def list_transactions(
         self, workspace_id: UUID, *, limit: int = 50, offset: int = 0
