@@ -179,9 +179,14 @@ filters can be proposed when their UI is designed; none are promised here.
 `GET /api/workspaces/{id}/analysis`: no body. 200 body matches
 [bank analysis](../examples/financial-analysis.json) or
 [balance-sheet analysis](../examples/balance-sheet-analysis.json).
-Only Python functions compute KPIs. No database access inside deterministic analysis.
+The route reads the signed-in user's saved parsed document before computing KPIs.
+Missing and foreign workspaces both return 404. The response contains source
+references and exact numeric JSON values. No database access occurs inside
+the deterministic analysis functions.
 Unreliable parsed data produces explicit reliability/warnings and unavailable
-metrics where necessary. Unparsed/failed workspaces return 409 `document_not_ready`.
+metrics where necessary. Balance sheets with unknown currency or scale withhold
+monetary values and ratios. Unresolved classifications or missing current amounts
+withhold working capital and current ratio. Unparsed/failed workspaces return 409 `document_not_ready`.
 
 `POST /api/workspaces/{id}/summary`: JSON request `{}`. Returns a nonstreaming,
 validated summary of the workspace's calculated results, never the raw file.

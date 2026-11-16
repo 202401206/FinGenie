@@ -681,3 +681,25 @@ def test_footer_words_in_narration_survive_the_complete_save_and_read(
     ]
     assert [item["source_row"] for item in page.json()["items"]] == [2, 3]
     assert content in server.files.values()
+
+
+def test_uploaded_bank_statement_feeds_owned_analysis(api_database_client):
+    client, _ = api_database_client
+    uploaded = statement_upload(client, layout_bytes("a", "csv"))
+    assert uploaded.status_code == 201
+    workspace_id = uploaded.json()["workspace"]["id"]
+    document_id = uploaded.json()["document"]["id"]
+    url = f"/api/workspaces/{workspace_id}/analysis"
+
+    result = client.get(url, headers={"Authorization": "Bearer token-a"})
+    assert result.status_code == 200, result.text
+    payload = json.loads(result.content, parse_float=Decimal)
+    assert payload["workspace_id"] == workspace_id
+    assert payload["reliability"] == "valid"
+    metric = next(item for item in payload["metrics"] if item["key"] == "net_cash_flow")
+    assert metric["value"] == 2500
+    assert metric["source_refs"][0]["document_id"] == document_id
+    assert metric["source_refs"][0]["source_rows"] == [6, 7, 8]
+    assert (
+        client.get(url, headers={"Authorization": "Bearer token-b"}).status_code == 404
+    )
