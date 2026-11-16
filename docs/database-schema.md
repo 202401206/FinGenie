@@ -61,3 +61,19 @@ Storage INSERT additionally requires the matching pending document and no
 cancellation. Reads/deletes retain their owner-prefix rules. The API/parser
 owners still need to connect their public workflows to these helpers.
 Never publish real financial data in migrations, seed files, fixtures or logs.
+
+## Sprint 2 balance snapshot finalization
+
+The local migration `20261116201152_finalize_balance_sheet.sql` adds
+`finalize_balance_sheet(workspace_id, document_id, parsed_json)`. It adds no tables
+or columns. Business balance data remains in `documents.parsed_json`, with known
+currency in metadata and bank period columns null. Reporting date, unit scale,
+prior periods and traceability stay in JSON; reported amounts are not rescaled.
+The operation returns a zero transaction count and inserts no bank transactions.
+
+The function runs with caller privileges/RLS, checks the owned pending document
+and canonical registered source, respects cancellation, and uses the existing
+upload lock order. It saves metadata/JSON/status atomically and rejects repeats.
+This file has been tested locally, not deployed by this work. Balance parser,
+public dispatch and recovery integration are separate milestones; keep public
+balance uploads disabled until those pieces are reviewed together.

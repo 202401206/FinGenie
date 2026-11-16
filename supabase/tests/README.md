@@ -18,7 +18,7 @@ Installing the npm package needs registry access; the tests themselves run offli
 
 `database.mjs` builds a minimal test-only Auth/Storage schema and applies every
 migration in filename order to an in-memory PostgreSQL engine (PGlite 0.3.14).
-`run.mjs` executes the four SQL suites and checks that synthetic fixtures rolled
+`run.mjs` executes the five SQL suites and checks that synthetic fixtures rolled
 back, including cancellation rows. No test edits a hosted Supabase project.
 
 `bridge.mjs` opens no network port. It accepts parameterized SQL over stdio from

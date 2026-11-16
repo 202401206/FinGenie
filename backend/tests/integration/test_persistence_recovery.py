@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from app.core.security import require_user
-from app.db.errors import WorkspaceNotFound
+from app.db.errors import UnsupportedDocumentType, WorkspaceNotFound
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
 from app.db.repositories.source_uploads import SourceReservationRepository
 from app.db.repositories.upload_recovery import UploadRecoveryRepository
@@ -28,6 +28,7 @@ from app.services.source_errors import (
 )
 from app.services.source_storage import SourceStorage
 from app.services.upload_recovery import UploadRecoveryService
+from tests.db.test_balance_document_saves import balance_attempt, balance_statement
 from tests.db.test_parsed_documents import parsed_statement
 from tests.source_fixtures import OTHER, OWNER, make_attempt
 
@@ -123,6 +124,11 @@ class LocalSupabase:
                     ("file_extension", "text"),
                 ],
                 "finalize_bank_statement": [
+                    ("workspace_id", "uuid"),
+                    ("document_id", "uuid"),
+                    ("parsed_json", "jsonb"),
+                ],
+                "finalize_balance_sheet": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("parsed_json", "jsonb"),
@@ -306,6 +312,75 @@ def test_reserve_upload_save_read_and_two_user_isolation(database):
                 )
                 with pytest.raises(WorkspaceNotFound):
                     await foreign.list_transactions(attempt.workspace_id)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("currency,scale", [("INR", 100000), ("USD", 1), (None, None)])
+def test_balance_snapshot_round_trip_keeps_exact_values_and_owner_rls(
+    database, currency, scale
+):
+    server = LocalSupabase(database)
+
+    async def run():
+        async with helpers(server) as (client, user):
+            attempt = balance_attempt()
+            statement = balance_statement(attempt)
+            exact = Decimal("12345678901234567890.1234567890123456789")
+            statement.update(currency=currency, unit_scale=scale)
+            statement["assets"]["current"][0]["value"] = exact
+            statement["prior_period"] = {"total": exact}
+            statement["equity"]["retained_earnings"] = Decimal("-0.1234567890123456789")
+            receipt = await store(client, user.id, "token-a", attempt, statement)
+            assert receipt.transaction_count == 0
+            reads = WorkspaceRepository(client, user.id, "token-a")
+            context = await reads.get_parsed_document(attempt.workspace_id)
+            assert context.parsed_json.assets.current[0].value == exact
+            assert context.parsed_json.prior_period["total"] == exact
+            assert context.parsed_json.currency == currency
+            assert context.parsed_json.unit_scale == scale
+            assert context.parsed_json.equity.retained_earnings == Decimal(
+                "-0.1234567890123456789"
+            )
+            details = await reads.get_workspace(attempt.workspace_id)
+            assert details.documents[0].period_start is None
+            assert details.documents[0].period_end is None
+            assert "parsed_json" not in details.documents[0].model_dump()
+            with pytest.raises(UnsupportedDocumentType):
+                await reads.list_transactions(attempt.workspace_id)
+            assert (
+                database(
+                    "select count(*)::int as n from public.transactions where document_id=$1",
+                    [str(attempt.document_id)],
+                    user.id,
+                )["rows"][0]["n"]
+                == 0
+            )
+            async with helpers(server, "token-b") as (other, other_user):
+                with pytest.raises(WorkspaceNotFound):
+                    await WorkspaceRepository(
+                        other, other_user.id, "token-b"
+                    ).get_parsed_document(attempt.workspace_id)
+
+    asyncio.run(run())
+
+
+def test_lost_balance_receipt_preserves_completed_snapshot_and_source(database):
+    server = LocalSupabase(database)
+
+    async def run():
+        async with helpers(server) as (client, user):
+            attempt = balance_attempt()
+            statement = balance_statement(attempt)
+            server.timeout_after = "finalize_balance_sheet"
+            with pytest.raises(SourceOutcomeUnknown):
+                await store(client, user.id, "token-a", attempt, statement)
+            context = await WorkspaceRepository(
+                client, user.id, "token-a"
+            ).get_parsed_document(attempt.workspace_id)
+            assert context.document_id == attempt.document_id
+            assert context.parsed_json.assets.total == Decimal(300)
+            assert attempt.path in server.files
 
     asyncio.run(run())
 

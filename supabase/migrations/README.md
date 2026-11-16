@@ -37,3 +37,17 @@ This migration is also prepared locally and has not been deployed by this work.
 Run `../tests/parsed_documents.sql` after all migrations to test atomic rollback,
 source/state preconditions, exact money and owner isolation. All three SQL test
 scripts roll back their synthetic rows; they do not upload real Storage bytes.
+
+`20261116201152_finalize_balance_sheet.sql` adds a separate authenticated,
+security-invoker RPC for business balance snapshots. It uses the existing shared
+upload lock and cancellation guard, locks the owned parent/document, checks the
+registered canonical source, validates JSON, and saves parsed status/currency/JSON
+without transaction inserts. Reporting date and unit scale remain in JSON; bank
+period columns stay null. Existing bank functions and RLS policies are unchanged.
+
+This migration was generated with the pinned CLI and verified locally. It has
+not been applied to the hosted development project by this work. Run
+`../tests/balance_documents.sql` after all migrations for atomicity, exact values,
+readiness/source constraints, ownership and function privilege checks. Do not
+enable public balance uploads until the parser, dispatch and recovery support
+are integrated and reviewed.
