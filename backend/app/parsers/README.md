@@ -1,6 +1,8 @@
 # Parsers - Backend team
 
-`bank_statement/` parses supported bank statement CSV and XLSX formats; `balance_sheet/` is reserved for Sprint 2.
+`bank_statement/` parses supported bank statement CSV and XLSX formats; `balance_sheet/` parses supported balance sheet CSV and XLSX formats (Sprint 2).
+
+See [contracts/balance-sheet-layouts.md](../../../contracts/balance-sheet-layouts.md) for detailed balance sheet layout contracts, aliases, and unmapped reason codes.
 
 ## Supported Layouts Matrix
 
