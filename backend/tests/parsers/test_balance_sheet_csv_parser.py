@@ -287,14 +287,16 @@ Cash,100
         ):
             parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
 
-    def test_layout_b_detected_raises_unsupported_format(self) -> None:
-        """Layout B (dated columns) passed to Layout A parser raises UnsupportedFormatError."""
+    def test_layout_b_detected_parses_successfully(self) -> None:
+        """Layout B (dated columns) is recognized and parsed successfully."""
         csv_text = """Reporting Date: 2026-03-31
 Particulars,Note No,2026-03-31,2025-03-31
+Current Assets,,,
 Cash,,500,450
 """
-        with pytest.raises(UnsupportedFormatError, match="Layout B"):
-            parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+        bs = parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+        assert bs.reporting_date == date(2026, 3, 31)
+        assert bs.assets.current[0].value == Decimal("500")
 
     def test_file_size_limit_exceeded(self) -> None:
         """Files exceeding 5 MiB raise ResourceLimitError."""
