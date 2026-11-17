@@ -77,3 +77,24 @@ upload lock order. It saves metadata/JSON/status atomically and rejects repeats.
 This file has been tested locally, not deployed by this work. Balance parser,
 public dispatch and recovery integration are separate milestones; keep public
 balance uploads disabled until those pieces are reviewed together.
+
+## Settings and financial-data deletion
+
+The local settings migration adds `user_preferences` (owner UUID, selected currency
+and theme), `financial_data_state` (owner and monotonically increasing upload
+generation), `data_deletion_jobs` (owner-scoped operation UUID/status/timestamps)
+and `data_deletion_sources` (owned source path/removal progress).
+
+Owner RLS and narrow grants protect these tables. Invoker RPCs perform atomic
+partial preference updates and resumable deletion. Evidence triggers prevent
+generation rollback, false source-removal acknowledgements and unverified job
+completion; journal insertion initializes the snapshot/generation even through a
+direct owner table insert. Source paths are purged after successful completion.
+No Auth tokens or parsed financial JSON are stored in these deletion tables.
+
+Financial deletion keeps Auth identities and preferences. Existing cancellation
+UUIDs and generation counters remain to reject late upload/finalization writes.
+The account lock precedes existing workspace locks; uploads are blocked while a
+deletion is pending. No new financial rows or currency conversion are introduced.
+See [settings handoff](settings-api-handoff.md). Hosted deployment is still a
+separate reviewed step; embedded tests do not replace actual Storage verification.

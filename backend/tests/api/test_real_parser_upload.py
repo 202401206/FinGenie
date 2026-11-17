@@ -35,8 +35,10 @@ def real_upload():
         state["requests"].append((request.url.path, owner, token))
         if request.url.path == "/auth/v1/user":
             return httpx.Response(200, json={"id": owner})
+        if request.url.path.endswith("/get_upload_generation"):
+            return httpx.Response(200, json={"generation": 0})
         state["events"].append(request.url.path)
-        if request.url.path.endswith("/reserve_source_upload"):
+        if request.url.path.endswith("/reserve_source_upload_at_generation"):
             values = (
                 request.json()
                 if hasattr(request, "json")
@@ -140,7 +142,7 @@ def test_real_parser_to_atomic_save_preserves_source_and_exact_values(
     assert parsed["transactions"][0]["credit"] == Decimal("5000")
     assert state["source"] == content
     assert [path.split("/")[-1] for path in state["events"]] == [
-        "reserve_source_upload",
+        "reserve_source_upload_at_generation",
         f"source.{kind}",
         "finalize_bank_statement",
     ]

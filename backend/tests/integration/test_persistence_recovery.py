@@ -114,7 +114,8 @@ class LocalSupabase:
             if function == "finalize_bank_statement" and self.reject_save:
                 return httpx.Response(503)
             arguments = {
-                "reserve_source_upload": [
+                "get_upload_generation": [],
+                "reserve_source_upload_at_generation": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("user_type", "text"),
@@ -122,6 +123,7 @@ class LocalSupabase:
                     ("name", "text"),
                     ("original_filename", "text"),
                     ("file_extension", "text"),
+                    ("generation", "bigint"),
                 ],
                 "finalize_bank_statement": [
                     ("workspace_id", "uuid"),
@@ -151,7 +153,7 @@ class LocalSupabase:
                 expressions.append(f"($1::jsonb{operator}'p_{name}')::{kind}")
             result = self.query(
                 f"select public.{function}({','.join(expressions)})::text as body",
-                [request.content.decode()],
+                [request.content.decode()] if arguments else [],
                 user,
             )
             if "error" in result:
@@ -388,7 +390,7 @@ def test_lost_balance_receipt_preserves_completed_snapshot_and_source(database):
 @pytest.mark.parametrize(
     "stage,expected",
     [
-        ("reserve_source_upload", "cleaned"),
+        ("reserve_source_upload_at_generation", "cleaned"),
         ("upload", "cleaned"),
         ("finalize_bank_statement", "completed"),
     ],
@@ -650,7 +652,7 @@ def test_public_upload_reads_and_two_user_isolation(api_database_client, layout,
     "fault,status,remaining",
     [
         ("finalize_bank_statement", 201, True),
-        ("reserve_source_upload", 503, False),
+        ("reserve_source_upload_at_generation", 503, False),
         ("upload", 503, False),
         ("save_failure", 503, False),
         ("cleanup_failure", 503, True),

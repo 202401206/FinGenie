@@ -167,6 +167,7 @@ class UploadService:
         )
         attempt = SourceAttempt(
             user_id=self.access.user.id,
+            upload_generation=self.access.upload_generation,
             user_type=upload.user_type,
             document_type=upload.document_type,
             original_filename=upload.filename,

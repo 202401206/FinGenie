@@ -51,3 +51,24 @@ not been applied to the hosted development project by this work. Run
 readiness/source constraints, ownership and function privilege checks. Do not
 enable public balance uploads until the parser, dispatch and recovery support
 are integrated and reviewed.
+
+`20261117182410_user_settings_and_data_deletion.sql` adds owner-scoped preferences,
+durable deletion jobs/source manifests and upload generations. New RPCs run with
+caller privileges and a locked account scope. Partial preference writes preserve
+omitted fields. Deletion progress survives requests/restarts and does not store
+tokens or parsed financial payloads. Completion requires confirmed source absence
+and removes transactions/documents/workspaces while retaining Auth and preferences.
+
+The migration also extends the shared source lock with the account deletion
+barrier and introduces generation-aware reservation. The original seven-argument
+reservation RPC remains a generation-zero wrapper; new app requests capture the
+current generation before processing. This prevents a late, unreserved old upload
+from recreating financial data after deletion. Existing bank/balance save RPCs
+continue to use the shared lock.
+
+This migration is prepared and tested locally, not deployed by this work. See
+`../../docs/settings-api-handoff.md` for frontend retry semantics and
+`../tests/settings.sql` for ownership, retries, trigger guards and privilege checks.
+Deploy the application and migration together after review; older applications
+that keep using generation zero cannot upload for an owner after their first
+financial-data deletion.
