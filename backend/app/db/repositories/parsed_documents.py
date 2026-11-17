@@ -41,6 +41,21 @@ def reject_float_values(value: object) -> None:
             reject_float_values(item)
 
 
+def validate_document_data(
+    document_type: DocumentType, parsed_data: dict[str, object]
+) -> ParsedBankStatement | ParsedBalanceSheet:
+    """Use the same stored contract for saving and recovery reconciliation."""
+    if document_type == DocumentType.BANK_STATEMENT:
+        return ParsedBankStatement.model_validate(parsed_data)
+    if document_type == DocumentType.BALANCE_SHEET:
+        reject_float_values(parsed_data)
+        statement = ParsedBalanceSheet.model_validate(parsed_data)
+        if statement.currency not in (None, "INR", "USD"):
+            raise ValueError("Unsupported balance-sheet currency.")
+        return statement
+    raise UnsupportedDocumentType()
+
+
 class ParsedDocumentRepository:
     def __init__(
         self, client: httpx.AsyncClient, user_id: UUID, access_token: str
@@ -56,15 +71,11 @@ class ParsedDocumentRepository:
         if attempt.user_id != self._user_id:
             raise ValueError("Document owner must be the verified caller.")
         try:
+            statement = validate_document_data(attempt.document_type, parsed_data)
             if attempt.document_type == DocumentType.BANK_STATEMENT:
-                statement = ParsedBankStatement.model_validate(parsed_data)
                 function = "finalize_bank_statement"
                 transaction_count = len(statement.transactions)
             elif attempt.document_type == DocumentType.BALANCE_SHEET:
-                reject_float_values(parsed_data)
-                statement = ParsedBalanceSheet.model_validate(parsed_data)
-                if statement.currency not in (None, "INR", "USD"):
-                    raise ValueError("Unsupported balance-sheet currency.")
                 function = "finalize_balance_sheet"
                 transaction_count = 0
             else:

@@ -18,7 +18,7 @@ Installing the npm package needs registry access; the tests themselves run offli
 
 `database.mjs` builds a minimal test-only Auth/Storage schema and applies every
 migration in filename order to an in-memory PostgreSQL engine (PGlite 0.3.14).
-`run.mjs` executes the six SQL suites and checks that synthetic fixtures rolled
+`run.mjs` executes the seven SQL suites and checks that synthetic fixtures rolled
 back, including cancellation rows. No test edits a hosted Supabase project.
 
 The settings suite covers preference partial updates/validation, owner RLS,
@@ -27,6 +27,12 @@ late-upload rejection. The SQL runner also checks the new settings/deletion tabl
 are empty after fixture rollback. `backend/tests/integration/test_settings.py`
 exercises the public settings APIs with real PostgreSQL and mocked Auth/Storage,
 including failures, lost responses, batches, empty accounts and cross-user safety.
+
+`balance_recovery.sql` checks balance completion/conflict preservation, zero-row
+receipts, original-ID cleanup/repeats, caller isolation and late-write rejection.
+Its matching Python component tests are in
+`backend/tests/integration/test_balance_recovery_flow.py`. The original bank
+recovery suite remains part of every complete run.
 
 `bridge.mjs` opens no network port. It accepts parameterized SQL over stdio from
 the Python component test, uses the authenticated role and synthetic JWT subject

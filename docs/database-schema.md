@@ -98,3 +98,9 @@ The account lock precedes existing workspace locks; uploads are blocked while a
 deletion is pending. No new financial rows or currency conversion are introduced.
 See [settings handoff](settings-api-handoff.md). Hosted deployment is still a
 separate reviewed step; embedded tests do not replace actual Storage verification.
+
+The balance recovery migration adds a reconciliation RPC only, with no new table
+or status. Completed balances must match full expected JSON/metadata, have a
+registered canonical source and zero transaction rows. Unfinished attempts reuse
+existing cancellation and failed-source release rules. No upload-attempt journal
+or public attempt endpoint is added; those remain A4/P4 scope.

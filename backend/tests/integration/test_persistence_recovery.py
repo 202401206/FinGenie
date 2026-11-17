@@ -141,6 +141,12 @@ class LocalSupabase:
                     ("file_extension", "text"),
                     ("expected_json", "jsonb"),
                 ],
+                "begin_balance_sheet_recovery": [
+                    ("workspace_id", "uuid"),
+                    ("document_id", "uuid"),
+                    ("file_extension", "text"),
+                    ("expected_json", "jsonb"),
+                ],
                 "release_failed_upload": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),

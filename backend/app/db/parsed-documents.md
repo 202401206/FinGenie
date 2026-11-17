@@ -155,10 +155,11 @@ semantics apply to either save RPC. A lost balance success response leaves the
 snapshot/source intact and raises `SourceOutcomeUnknown("finalization")`.
 
 **Integration boundary:** this milestone does not enable balance uploads in the
-public route. Recovery validation/SQL still handles bank statements only. Wait for
-the reviewed parser, dispatch and balance recovery milestones before enabling a
-complete balance upload workflow. Do not add a fake transactions array to satisfy
-the old recovery helper or delete a source after an uncertain balance save.
+public route. Balance recovery is now implemented by the follow-up
+`20261117191222_balance_sheet_recovery.sql` migration and the existing recovery
+service. Wait for reviewed parser/dispatch integration and both save/recovery
+dependencies in integration before enabling a complete balance upload workflow.
+Do not add a fake transactions array or delete a source after an uncertain save.
 
 Verification uses `tests/db/test_balance_document_saves.py`, the balance cases in
 `tests/integration/test_persistence_recovery.py`, and

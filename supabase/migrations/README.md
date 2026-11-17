@@ -72,3 +72,12 @@ This migration is prepared and tested locally, not deployed by this work. See
 Deploy the application and migration together after review; older applications
 that keep using generation zero cannot upload for an owner after their first
 financial-data deletion.
+
+`20261117191222_balance_sheet_recovery.sql` adds the authenticated invoker
+`begin_balance_sheet_recovery(uuid,uuid,text,jsonb)` RPC. It uses the current shared
+source/account locks and cancellation markers, preserves verified completed
+snapshots with zero transactions, and marks only unfinished attempts for cleanup.
+The original bank recovery and generic failed-source release functions are unchanged.
+This is a locally tested migration, not a hosted deployment. Run
+`../tests/balance_recovery.sql` after all migrations; the complete runner now has
+seven suites. Upload-attempt journals/public recovery routes remain separate work.

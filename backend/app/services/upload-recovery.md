@@ -1,8 +1,12 @@
-# Recovering an interrupted bank-statement upload
+# Recovering an interrupted financial-document upload
 
 `UploadRecoveryService.recover(attempt, parsed_data)` settles one failed attempt
 using the verified caller's token. It is an internal helper for Anshuman's upload
 service. It adds no public route, parser, background worker or automatic retry.
+
+Both bank statements and business balance sheets are supported. See
+[the save/recovery handoff](../../../docs/sprint-2-balance-save-recovery-handoff.md)
+for exact dependency imports and integration requirements.
 
 ## When to call it
 
@@ -106,3 +110,36 @@ Anshuman and Dhaval still need to connect their parts and run the live two-user
 upload/read/failure demo together. No hosted migration was applied by this change.
 Recovery is request-driven: surviving a backend restart requires the caller/team
 to retain enough attempt context securely. There is no durable job queue here.
+
+## Balance-sheet reconciliation
+
+`UploadRecoveryRepository.begin(attempt, parsed_data)` dispatches bank attempts to
+the original `begin_upload_recovery` RPC and balance attempts to the new
+`begin_balance_sheet_recovery` RPC. Both use the unchanged generic
+`release_failed_upload` RPC only after Storage removal and its absence check.
+The save and recovery boundaries now share `validate_document_data`, preserving
+the same normalized fields, exact Decimal values, nulls, extras and prior periods.
+
+For a completed business balance sheet, recovery checks the original owned IDs,
+canonical registered source, full expected JSON, currency, null bank-period
+columns, zero bank transaction rows and absence of cancellation. Only a match
+returns the existing receipt with `transaction_count=0`. Changed reported values,
+prior periods, metadata, stray rows or missing source produce `pending/state_conflict`
+and are not deleted. An unavailable or lost reconciliation result stays pending.
+
+An unfinished or absent attempt is cancelled before cleanup. Its source is removed
+through Storage and metadata is released only after absence is verified. Repeats
+keep the same IDs; cancellation still blocks late reservation, source insertion
+and finalization. Caller mismatch is rejected before network access. RLS keeps
+other users' rows invisible; a guessed foreign UUID is absent in the caller's own
+namespace, never a license to remove the owner's source.
+
+Python signatures, receipts, recovery results and exception types are unchanged.
+This adds one local migration, no new HTTP endpoint or upload-attempt journal.
+Durable upload-attempt storage and public attempt APIs remain in A4/P4. The
+settings deletion journal is separate and does not supply upload recovery context.
+
+Tests include the direct SQL suite `supabase/tests/balance_recovery.sql`, repository
+tests in `tests/db/test_balance_recovery.py`, and SQL-backed component scenarios in
+`tests/integration/test_balance_recovery_flow.py`. Hosted deployment and an actual
+Storage/two-user integration demo remain separate reviewed steps.
