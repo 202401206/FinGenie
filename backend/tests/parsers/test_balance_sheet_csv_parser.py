@@ -332,8 +332,10 @@ Cash,100
         )
         assert bs.reporting_date == date(2026, 1, 31)
 
-        # XLSX rejected until D4
-        with pytest.raises(UnsupportedFormatError, match="Milestone D4"):
+        # Invalid XLSX archive content
+        with pytest.raises(
+            UnsupportedFormatError, match="not a valid XLSX workbook archive"
+        ):
             parse_balance_sheet(b"fake xlsx", file_kind="xlsx", document_id=TEST_DOC_ID)
 
         # Unsupported kind

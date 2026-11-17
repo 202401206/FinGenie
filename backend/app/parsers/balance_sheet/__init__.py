@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from app.parsers.balance_sheet.csv_parser import parse_balance_sheet_csv
+from app.parsers.balance_sheet.xlsx_parser import parse_balance_sheet_xlsx
 from app.parsers.errors import UnsupportedFormatError
 from app.schemas.balance_sheet import BalanceSheet
 
@@ -25,15 +26,14 @@ def parse_balance_sheet(
     Raises:
         UnsupportedFormatError: If file_kind is unsupported or layout does not match.
         InvalidStatementError: If required fields or numeric structures are invalid.
+        AmbiguousWorksheetError: If multiple worksheets match the layout.
         ResourceLimitError: If statement exceeds agreed bounds.
     """
     kind = file_kind.strip().lower()
     if kind == "csv":
         return parse_balance_sheet_csv(content, document_id=document_id)
     elif kind == "xlsx":
-        raise UnsupportedFormatError(
-            "XLSX balance sheet parsing is scheduled for Milestone D4"
-        )
+        return parse_balance_sheet_xlsx(content, document_id=document_id)
     else:
         raise UnsupportedFormatError(
             f"Unsupported file kind '{file_kind}'; expected 'csv' or 'xlsx'"
