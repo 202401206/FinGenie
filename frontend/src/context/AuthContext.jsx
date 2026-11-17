@@ -1,14 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase.js';
-
-export const AuthContext = createContext({
-  session: null,
-  user: null,
-  loading: true,
-  signIn: async () => {},
-  signUp: async () => {},
-  signOut: async () => {}
-});
+import { AuthContext } from './authContextDefinition.js';
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -56,7 +48,9 @@ export function AuthProvider({ children }) {
       email,
       password,
       options: {
-        data: { full_name: fullName }
+        data: { 
+          full_name: fullName
+        }
       }
     });
     if (error) throw error;
@@ -86,3 +80,5 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+
+export { AuthContext };

@@ -4,6 +4,7 @@ import {
   uploadBankStatement,
   getWorkspaces,
 } from "./uploadService.js";
+import { isRecoveryPending } from "../../services/api.js";
 import "./UploadPage.css";
 
 const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
@@ -63,18 +64,15 @@ function formatWorkspaceDate(dateValue) {
   });
 }
 
-export default function UploadPage() {
+export default function UploadPage({ onSelectWorkspace }) {
+  const { session, loading: authLoading } = useAuth();
   const fileInputRef = useRef(null);
 
-  // Get the real Supabase session from the shared authentication context.
-  const {
-    session,
-    loading: authLoading,
-  } = useAuth();
-
-  const [userType, setUserType] = useState("");
+  // Form state.
+  const [userType, setUserType] = useState("personal");
   const [file, setFile] = useState(null);
 
+  // Status: idle | ready | uploading | success | error | uncertain
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -249,8 +247,16 @@ export default function UploadPage() {
       const isNetworkError =
         uploadError instanceof TypeError ||
         uploadError.code === "NETWORK_ERROR";
+      const isPendingRecovery = isRecoveryPending(uploadError);
 
-      if (isNetworkError) {
+      if (isPendingRecovery) {
+        setError(
+          `Upload outcome could not be confirmed immediately (${uploadError.code}). The backend may still be processing or recovering this upload. Please refresh Recent Documents below to inspect your workspace details before attempting another upload. If the outcome remains unclear, contact the backend lead.`
+        );
+        // Refresh workspaces to check whether the backend saved the file.
+        setWorkspaceRefreshKey((current) => current + 1);
+        setStatus("uncertain");
+      } else if (isNetworkError) {
         setError(
           "The connection was interrupted. Your upload may have reached the backend. Check Recent Documents before attempting another upload."
         );
@@ -299,130 +305,115 @@ export default function UploadPage() {
         </h1>
 
         <p>
-          Upload a bank statement to create or update your financial analysis.
-          Your transactions and insights will be available in your dashboard
-          when those features are ready.
+          Upload a bank statement to create your financial workspace.
+          Your parsed transactions and verified records will be accessible
+          in the transactions ledger.
         </p>
       </section>
 
-      {/* Upload card */}
-      <section className="fg-upload-card">
-        <div className="fg-card-heading">
-          <div>
-            <span className="fg-step-label">GET STARTED</span>
-            <h2>Upload a bank statement</h2>
-            <p>
-              Select your account type and choose the statement you want
-              to analyze.
-            </p>
+      {/* Upload and Workspace section */}
+      <section className="fg-workbench">
+        {/* Upload form card */}
+        <section className="fg-form-card">
+          <div className="fg-form-header">
+            <div>
+              <span className="fg-step-label">STEP 1 OF 2</span>
+              <h2>Add a bank statement</h2>
+            </div>
           </div>
 
-          <div className="fg-document-icon" aria-hidden="true">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-            >
-              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
-              <path d="M13 2v7h7M8 14h8M8 18h8" />
-            </svg>
-          </div>
-        </div>
+          <form onSubmit={handleSubmit} noValidate>
+            {/* Account type selection */}
+            <div className="fg-bank-section">
+              <label className="fg-section-label" htmlFor="user-type">
+                Account type
+              </label>
 
-        <form onSubmit={handleSubmit} noValidate>
-          {/* Account type selection */}
-          <div className="fg-bank-section">
-            <label className="fg-section-label" htmlFor="user-type">
-              Select your account type
-            </label>
+              <select
+                id="user-type"
+                className="fg-bank-select"
+                value={userType}
+                onChange={handleUserTypeChange}
+                disabled={status === "uploading"}
+              >
+                <option value="personal">Personal account</option>
+                <option value="business">Business account</option>
+              </select>
 
-            <select
-              id="user-type"
-              className="fg-bank-select"
-              value={userType}
-              onChange={handleUserTypeChange}
-              disabled={status === "uploading" || status === "success"}
-              required
-            >
-              <option value="">Choose account type</option>
-              <option value="personal">Personal</option>
-              <option value="business">Business</option>
-            </select>
+              <span className="fg-field-hint">
+                Sprint 1 supports bank statements for both account types.
+              </span>
+            </div>
 
-            <p className="fg-format-help">
-              Choose whether this statement belongs to your personal
-              or business finances.
-            </p>
-          </div>
-
-          {/* File selection */}
-          <div className="fg-file-section">
-            <label
-              className="fg-section-label"
-              htmlFor="bank-statement-file"
-            >
-              Your bank statement
-            </label>
-
+            {/* Hidden file input */}
             <input
               ref={fileInputRef}
-              id="bank-statement-file"
-              className="fg-file-input"
               type="file"
+              id="statement-file-input"
+              className="fg-hidden-file-input"
               accept=".csv,.xlsx"
               onChange={handleFileChange}
-              disabled={status === "uploading" || status === "success"}
-              aria-describedby="file-format-help"
+              disabled={status === "uploading"}
             />
 
+            {/* Dropzone */}
             <div
-              className={`fg-dropzone ${file ? "has-file" : ""} ${
-                error ? "has-error" : ""
-              }`}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-
-                if (status === "uploading" || status === "success") {
-                  return;
+              className={`fg-dropzone ${file ? "has-file" : ""}`}
+              onClick={() => {
+                if (status !== "uploading") {
+                  fileInputRef.current?.click();
                 }
-
-                const droppedFile =
-                  event.dataTransfer.files?.[0] ?? null;
-
-                const validationError = validateFile(droppedFile);
-
-                if (validationError) {
-                  setFile(droppedFile);
-                  setError(validationError);
-                  setResult(null);
-                  setStatus("error");
-                  return;
+              }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (
+                  (event.key === "Enter" || event.key === " ") &&
+                  status !== "uploading"
+                ) {
+                  event.preventDefault();
+                  fileInputRef.current?.click();
                 }
-
-                setFile(droppedFile);
-                resetMessages();
               }}
             >
-              {file ? (
-                <div className="fg-selected-file">
-                  <span className="fg-file-icon" aria-hidden="true">
+              <div className="fg-dropzone-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M12 16.5V3.75m0 0L7.5 8.25m4.5-4.5 4.5 4.5" />
+                  <path d="M20.25 14.25v4.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-4.5" />
+                </svg>
+              </div>
+
+              <div className="fg-dropzone-copy">
+                <strong>Click to choose a statement file</strong>
+                <span>Supports CSV and XLSX files up to 5 MiB</span>
+              </div>
+            </div>
+
+            {/* Selected file preview */}
+            {file && (
+              <div className="fg-file-preview">
+                <div className="fg-file-pill">
+                  <div className="fg-file-pill-icon" aria-hidden="true">
                     <svg
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="1.7"
+                      strokeWidth="1.6"
                     >
-                      <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
-                      <path d="M13 2v7h7" />
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                      <path d="M14 2v6h6" />
                     </svg>
-                  </span>
+                  </div>
 
-                  <span className="fg-file-details">
-                    <strong title={file.name}>{file.name}</strong>
+                  <div className="fg-file-pill-info">
+                    <strong>{file.name}</strong>
                     <span>{formatFileSize(file.size)}</span>
-                  </span>
+                  </div>
 
                   <button
                     type="button"
@@ -431,59 +422,26 @@ export default function UploadPage() {
                     aria-label="Remove selected file"
                     disabled={status === "uploading"}
                   >
-                    Remove
+                    ✕
                   </button>
                 </div>
-              ) : (
-                <div className="fg-dropzone-content">
-                  <span className="fg-upload-icon" aria-hidden="true">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.7"
-                    >
-                      <path d="M12 16V4m-5 5 5-5 5 5" />
-                      <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
-                    </svg>
-                  </span>
+              </div>
+            )}
 
-                  <strong>Choose a file to upload</strong>
+            {/* Error message */}
+            {error && status === "error" && (
+              <div className="fg-message fg-message-error" role="alert">
+                <strong>Upload issue</strong>
+                <span>{error}</span>
+              </div>
+            )}
 
-                  <span className="fg-dropzone-secondary">
-                    or drag and drop it here
-                  </span>
+            {/* Uncertain network or pending-recovery state */}
+            {status === "uncertain" && (
+              <div className="fg-message fg-message-warning" role="status">
+                <strong>Check recent documents</strong>
+                <span>{error}</span>
 
-                  <button
-                    type="button"
-                    className="fg-browse-button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={status === "uploading"}
-                  >
-                    Browse files
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <p id="file-format-help" className="fg-format-help">
-              Supported formats: CSV and XLSX. Maximum size: 5 MiB.
-              PDF files are not supported.
-            </p>
-          </div>
-
-          {/* Error messages */}
-          {error && (
-            <div className="fg-message fg-message-error" role="alert">
-              <strong>
-                {status === "uncertain"
-                  ? "Upload status could not be confirmed"
-                  : "Unable to continue"}
-              </strong>
-
-              <span>{error}</span>
-
-              {status === "uncertain" && (
                 <button
                   type="button"
                   className="fg-cancel-button"
@@ -491,199 +449,230 @@ export default function UploadPage() {
                 >
                   Refresh Recent Documents
                 </button>
-              )}
-            </div>
-          )}
-
-          {/* Successful upload */}
-          {status === "success" && result && (
-            <div className="fg-message fg-message-success" role="status">
-              <strong>Statement uploaded successfully!</strong>
-
-              <span>
-                {result.workspace?.name
-                  ? `Your workspace "${result.workspace.name}" has been created.`
-                  : "Your statement has been saved successfully."}
-              </span>
-
-              {result.document?.status && (
-                <span>
-                  Processing status: {result.document.status}
-                </span>
-              )}
-
-              <button
-                type="button"
-                className="fg-cancel-button"
-                onClick={handleCancelAndStartOver}
-              >
-                Upload another statement
-              </button>
-            </div>
-          )}
-
-          {/* Import confirmation */}
-          {(status === "ready" || status === "uploading") && (
-            <section className="fg-import-panel">
-              <div className="fg-import-heading">
-                <span className="fg-step-label">CONFIRM UPLOAD</span>
-
-                <h3>Ready to import your statement?</h3>
-
-                <p>
-                  Your selected statement will be uploaded and saved
-                  to your financial workspace.
-                </p>
               </div>
+            )}
 
-              <div className="fg-import-actions">
-                <button
-                  type="button"
-                  className="fg-import-button"
-                  onClick={handleImportStatement}
-                  disabled={status === "uploading"}
-                >
-                  {status === "uploading" ? (
-                    <>
-                      <span className="fg-spinner" aria-hidden="true" />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      Import Statement
-                      <span aria-hidden="true">→</span>
-                    </>
+            {/* Success state */}
+            {status === "success" && result && (
+              <div className="fg-message fg-message-success" role="status">
+                <strong>Statement uploaded successfully!</strong>
+
+                <span>
+                  {result.workspace?.name
+                    ? `Your workspace "${result.workspace.name}" has been created.`
+                    : "Your statement has been saved successfully."}
+                </span>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                  {onSelectWorkspace && result?.workspace?.id && (
+                    <button
+                      type="button"
+                      className="fg-import-button"
+                      onClick={() => onSelectWorkspace(result.workspace.id, result.workspace)}
+                    >
+                      View Transactions Ledger →
+                    </button>
                   )}
+                  <button
+                    type="button"
+                    className="fg-cancel-button"
+                    onClick={handleCancelAndStartOver}
+                  >
+                    Upload another statement
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Initial form submit button */}
+            {status === "idle" && (
+              <div className="fg-form-actions">
+                <button
+                  type="submit"
+                  className="fg-submit-button"
+                  disabled={!file}
+                >
+                  Continue to Confirmation →
                 </button>
+              </div>
+            )}
+          </form>
+
+          {/* Step 2: Upload confirmation modal / drawer */}
+          {(status === "ready" || status === "uploading") && (
+            <div className="fg-confirm-overlay">
+              <div
+                className="fg-confirm-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="confirm-modal-title"
+              >
+                <div className="fg-confirm-header">
+                  <span className="fg-step-label">STEP 2 OF 2</span>
+                  <h3 id="confirm-modal-title">Confirm upload</h3>
+                  <p>
+                    Your selected statement will be uploaded and saved
+                    to your financial workspace.
+                  </p>
+                </div>
+
+                <div className="fg-confirm-details">
+                  <div className="fg-confirm-row">
+                    <span>Account type</span>
+                    <strong>
+                      {userType === "business"
+                        ? "Business account"
+                        : "Personal account"}
+                    </strong>
+                  </div>
+
+                  <div className="fg-confirm-row">
+                    <span>File name</span>
+                    <strong>{file?.name}</strong>
+                  </div>
+
+                  <div className="fg-confirm-row">
+                    <span>File size</span>
+                    <strong>{file ? formatFileSize(file.size) : "0 B"}</strong>
+                  </div>
+                </div>
+
+                <div className="fg-confirm-actions">
+                  <button
+                    type="button"
+                    className="fg-import-button"
+                    onClick={handleImportStatement}
+                    disabled={status === "uploading"}
+                  >
+                    {status === "uploading" ? (
+                      <>
+                        <span
+                          className="fg-button-spinner"
+                          aria-hidden="true"
+                        />
+                        Uploading statement...
+                      </>
+                    ) : (
+                      "Upload Statement"
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="fg-cancel-button"
+                    onClick={handleCancelAndStartOver}
+                    disabled={status === "uploading"}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Recent Documents */}
+        <section className="fg-recent-section">
+          <div className="fg-recent-heading">
+            <div>
+              <span className="fg-step-label">YOUR WORKSPACE</span>
+              <h2>Recent financial analyses</h2>
+              <p>
+                Continue from your previously created financial workspaces.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="fg-refresh-button"
+              onClick={handleRefreshWorkspaces}
+              disabled={workspaceStatus === "loading"}
+              title="Refresh workspaces"
+            >
+              ↻ Refresh
+            </button>
+          </div>
+
+          <div className="fg-recent-list">
+            {workspaceStatus === "loading" && (
+              <p className="fg-recent-note">
+                Loading your recent documents...
+              </p>
+            )}
+
+            {workspaceStatus === "signed-out" && (
+              <p className="fg-recent-note">
+                Sign in to view your saved financial workspaces.
+              </p>
+            )}
+
+            {workspaceStatus === "empty" && (
+              <p className="fg-recent-note">
+                You haven't uploaded any statements yet. Your workspaces
+                will appear here after your first successful upload.
+              </p>
+            )}
+
+            {workspaceStatus === "error" && (
+              <div className="fg-message fg-message-error" role="alert">
+                <strong>Unable to load recent documents</strong>
+                <span>{workspaceError}</span>
 
                 <button
                   type="button"
                   className="fg-cancel-button"
-                  onClick={handleCancelAndStartOver}
-                  disabled={status === "uploading"}
+                  onClick={handleRefreshWorkspaces}
                 >
-                  Cancel and upload a new document
+                  Try again
                 </button>
               </div>
-            </section>
-          )}
+            )}
 
-          {/* Continue button */}
-          {(status === "idle" || status === "error") && (
-            <button type="submit" className="fg-submit-button">
-              Continue
-              <span aria-hidden="true">→</span>
-            </button>
-          )}
+            {workspaceStatus === "loaded" &&
+              workspaces.map((workspace) => (
+                <article className="fg-analysis-card" key={workspace.id}>
+                  <div className="fg-analysis-icon" aria-hidden="true">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                    >
+                      <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+                      <path d="M13 2v7h7M8 14h8M8 18h8" />
+                    </svg>
+                  </div>
 
-          <p className="fg-privacy-note">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              aria-hidden="true"
-            >
-              <rect x="4" y="10" width="16" height="11" rx="2" />
-              <path d="M8 10V7a4 4 0 1 1 8 0v3" />
-            </svg>
-            Your selected statement will be sent to FinGenie for processing.
-          </p>
-        </form>
-      </section>
+                  <div className="fg-analysis-details">
+                    <strong>{workspace.name}</strong>
 
-      {/* Recent Documents */}
-      {/* Workspace navigation will be connected with the Dashboard teammate later. */}
-      <section className="fg-recent-section">
-        <div className="fg-recent-heading">
-          <div>
-            <span className="fg-step-label">YOUR WORKSPACE</span>
-            <h2>Recent financial analyses</h2>
-            <p>
-              Continue from your previously created financial analyses.
-            </p>
-          </div>
-        </div>
+                    <span>
+                      {workspace.user_type === "business"
+                        ? "Business"
+                        : "Personal"}{" "}
+                      • {formatWorkspaceDate(workspace.created_at)}
+                    </span>
+                  </div>
 
-        <div className="fg-recent-list">
-          {workspaceStatus === "loading" && (
-            <p className="fg-recent-note">
-              Loading your recent documents...
-            </p>
-          )}
-
-          {workspaceStatus === "signed-out" && (
-            <p className="fg-recent-note">
-              Sign in to view your saved financial workspaces.
-            </p>
-          )}
-
-          {workspaceStatus === "empty" && (
-            <p className="fg-recent-note">
-              You haven't uploaded any statements yet. Your workspaces
-              will appear here after your first successful upload.
-            </p>
-          )}
-
-          {workspaceStatus === "error" && (
-            <div className="fg-message fg-message-error" role="alert">
-              <strong>Unable to load recent documents</strong>
-              <span>{workspaceError}</span>
-
-              <button
-                type="button"
-                className="fg-cancel-button"
-                onClick={handleRefreshWorkspaces}
-              >
-                Try again
-              </button>
-            </div>
-          )}
-
-          {workspaceStatus === "loaded" &&
-            workspaces.map((workspace) => (
-              <article className="fg-analysis-card" key={workspace.id}>
-                <div className="fg-analysis-icon" aria-hidden="true">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                  >
-                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
-                    <path d="M13 2v7h7M8 14h8M8 18h8" />
-                  </svg>
-                </div>
-
-                <div className="fg-analysis-details">
-                  <strong>{workspace.name}</strong>
-
-                  <span>
-                    {workspace.user_type === "business"
-                      ? "Business"
-                      : "Personal"}{" "}
-                    · {formatWorkspaceDate(workspace.created_at)}
+                  <span className="fg-demo-badge">
+                    {workspace.document_type === "bank_statement"
+                      ? "Bank statement"
+                      : workspace.document_type}
                   </span>
-                </div>
 
-                <span className="fg-demo-badge">
-                  {workspace.document_type === "bank_statement"
-                    ? "Bank statement"
-                    : workspace.document_type}
-                </span>
-
-                <button
-                  type="button"
-                  className="fg-dashboard-button"
-                  disabled
-                  title="Dashboard navigation will be connected later"
-                >
-                  Open dashboard
-                  <span aria-hidden="true">→</span>
-                </button>
-              </article>
-            ))}
-        </div>
+                  <button
+                    type="button"
+                    className="fg-dashboard-button"
+                    onClick={() => onSelectWorkspace && onSelectWorkspace(workspace.id, workspace)}
+                    title="View transaction ledger for this workspace"
+                  >
+                    View Transactions
+                    <span aria-hidden="true">→</span>
+                  </button>
+                </article>
+              ))}
+          </div>
+        </section>
       </section>
 
       {/* Footer */}

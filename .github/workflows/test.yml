@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Run Unit & Contract Tests
+    name: Frontend Verification Suite
     runs-on: ubuntu-latest
 
     steps:
@@ -18,11 +18,12 @@ jobs:
       - name: Setup Node.js Environment
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Run Unit & Contract Tests
+      - name: Run Clean Install, Tests, Lint, and Production Build
         run: |
-          if [ -d 'frontend' ]; then
-            cd frontend
-          fi
-          node --test tests/*.test.js
+          cd frontend
+          npm ci
+          npm test
+          npm run lint
+          npm run build

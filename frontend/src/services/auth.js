@@ -15,7 +15,7 @@ export async function signIn({ email, password }) {
   return data;
 }
 
-export async function signUpUser({ email, password, fullName, accountType = 'personal', bankId = 'hdfc' }) {
+export async function signUpUser({ email, password, fullName, ...extraMetadata }) {
   if (!supabase) {
     throw new Error('Supabase is not configured. Check your frontend/.env file.');
   }
@@ -25,8 +25,7 @@ export async function signUpUser({ email, password, fullName, accountType = 'per
     options: {
       data: {
         full_name: fullName,
-        account_type: accountType,
-        bank_id: bankId
+        ...extraMetadata
       }
     }
   });

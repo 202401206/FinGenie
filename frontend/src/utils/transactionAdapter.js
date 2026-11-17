@@ -1,6 +1,7 @@
 /**
  * Backend Transaction Contract Display Adapter
  * Expected backend fields: id, document_id, date, description, debit, credit, balance, source_row
+ * Document metadata fields: id, status, original_filename, currency, period_start, period_end
  */
 
 export function adaptTransaction(raw = {}, documentMetadata = {}) {
@@ -11,22 +12,27 @@ export function adaptTransaction(raw = {}, documentMetadata = {}) {
   const amount = isCredit ? credit : (debit !== null ? debit : 0);
   const type = isCredit ? 'credit' : 'debit';
 
+  // Do NOT invent INR if currency is null/missing
+  const currency = documentMetadata.currency !== undefined && documentMetadata.currency !== null
+    ? documentMetadata.currency
+    : (raw.currency !== undefined && raw.currency !== null ? raw.currency : null);
+
+  // Filename: backend field is `original_filename`
+  const source_file = documentMetadata.original_filename || raw.source_file || 'document';
+
   return {
     id: String(raw.id || `tx-${raw.source_row || Math.random()}`),
-    document_id: raw.document_id || documentMetadata.id || 'unknown-document',
-    source_file: raw.source_file || documentMetadata.filename || documentMetadata.file_name || 'Uploaded Document',
+    document_id: String(raw.document_id || documentMetadata.id || ''),
+    source_file,
     source_row: raw.source_row !== null && raw.source_row !== undefined ? raw.source_row : '—',
     date: raw.date || '',
-    description: raw.description || 'No description available',
-    category: raw.category || 'Unknown',
-    payment_method: raw.payment_method || raw.channel || 'Unknown',
-    currency: raw.currency || documentMetadata.currency || 'INR',
+    description: String(raw.description || 'No description available'),
+    currency,
     debit,
     credit,
     balance: raw.balance !== null && raw.balance !== undefined ? Number(raw.balance) : null,
     amount,
-    type,
-    ai_inferred: Boolean(raw.ai_inferred)
+    type
   };
 }
 

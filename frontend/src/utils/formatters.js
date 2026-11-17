@@ -2,10 +2,10 @@
  * Safe Financial Formatters for Indian Banking & Multi-Currency Standards
  */
 
-export function formatCurrency(amount, currency = 'INR', options = {}) {
+export function formatCurrency(amount, currency = null, options = {}) {
   const { includeDecimals = true, showSign = false } = options;
 
-  if (amount === null || amount === undefined || isNaN(Number(amount))) {
+  if (amount === null || amount === undefined || amount === '' || isNaN(Number(amount))) {
     return '—';
   }
 
@@ -27,7 +27,13 @@ export function formatCurrency(amount, currency = 'INR', options = {}) {
     formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
-  const symbol = currency === 'INR' ? '₹' : `${currency} `;
+  let symbol = '';
+  if (currency === 'INR') {
+    symbol = '₹';
+  } else if (currency && typeof currency === 'string' && currency.trim() !== '') {
+    symbol = `${currency.trim()} `;
+  }
+
   let result = `${symbol}${formattedInteger}`;
   if (includeDecimals) {
     result += `.${decimalPart}`;
@@ -38,11 +44,18 @@ export function formatCurrency(amount, currency = 'INR', options = {}) {
   return result;
 }
 
-export function formatBalance(balance, currency = 'INR') {
+export function formatBalance(balance, currency = null) {
   if (balance === null || balance === undefined || balance === '') {
     return '—';
   }
   return formatCurrency(balance, currency);
+}
+
+export function formatCurrencyLabel(currency) {
+  if (!currency || typeof currency !== 'string' || currency.trim() === '') {
+    return 'Currency unavailable';
+  }
+  return currency.trim();
 }
 
 export function formatDate(dateString) {

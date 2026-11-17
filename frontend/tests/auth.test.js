@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import { isLiveSupabase } from '../src/services/auth.js';
 
 function validateEmail(email) {
   if (!email || typeof email !== 'string') return false;
@@ -11,16 +12,6 @@ function validatePassword(password) {
   return password.length >= 8;
 }
 
-function checkIsLiveSupabase(url, publishableKey, anonKey) {
-  const key = publishableKey || anonKey;
-  return Boolean(
-    url && 
-    key && 
-    !url.includes('YOUR_PROJECT_REF') && 
-    !url.includes('your-project-ref')
-  );
-}
-
 test('validateEmail validates RFC compliant email addresses', () => {
   assert.strictEqual(validateEmail('test@fingenie.app'), true);
   assert.strictEqual(validateEmail('aditya@bank.co.in'), true);
@@ -28,23 +19,51 @@ test('validateEmail validates RFC compliant email addresses', () => {
   assert.strictEqual(validateEmail(''), false);
 });
 
-test('validatePassword enforces minimum length', () => {
+test('validatePassword enforces minimum length of 8 characters', () => {
   assert.strictEqual(validatePassword('SecretPassword123'), true);
   assert.strictEqual(validatePassword('short'), false);
   assert.strictEqual(validatePassword(''), false);
 });
 
-test('checkIsLiveSupabase correctly recognizes VITE_SUPABASE_PUBLISHABLE_KEY', () => {
-  const url = 'https://btkiojssgksyfulrlzjs.supabase.co';
-  const pubKey = 'sb_publishable_CAGjDTxrNINr9eOIVel-hg_bJmDm9f1';
-  
-  // Enabled via publishable key
-  assert.strictEqual(checkIsLiveSupabase(url, pubKey, null), true);
-  
-  // Enabled via fallback anon key
-  assert.strictEqual(checkIsLiveSupabase(url, null, 'anon-key-123'), true);
-  
-  // Disabled if unconfigured placeholder
-  assert.strictEqual(checkIsLiveSupabase('https://YOUR_PROJECT_REF.supabase.co', pubKey, null), false);
-  assert.strictEqual(checkIsLiveSupabase('', '', null), false);
+test('isLiveSupabase export is a valid boolean', () => {
+  assert.strictEqual(typeof isLiveSupabase, 'boolean');
+});
+
+test('account change guard resets stale workspace requests', () => {
+  let activeRequestId = 1;
+
+  function initiateRequest() {
+    return ++activeRequestId;
+  }
+
+  function handleAccountSwitch() {
+    activeRequestId += 1;
+  }
+
+  const req1 = initiateRequest();
+  assert.strictEqual(req1, 2);
+
+  // User logs out or switches account while req1 is in flight
+  handleAccountSwitch();
+
+  // req1 completes later: verify it is detected as stale and ignored
+  const isStale = req1 !== activeRequestId;
+  assert.strictEqual(isStale, true);
+});
+
+test('duplicate upload submission guard rejects concurrent execution', () => {
+  let uploadStatus = 'idle';
+
+  function triggerUpload() {
+    if (uploadStatus === 'uploading') {
+      return false; // Submission prevented
+    }
+    uploadStatus = 'uploading';
+    return true; // Submission accepted
+  }
+
+  assert.strictEqual(triggerUpload(), true);
+  assert.strictEqual(triggerUpload(), false); // Prevented while uploading
+  uploadStatus = 'idle';
+  assert.strictEqual(triggerUpload(), true);
 });

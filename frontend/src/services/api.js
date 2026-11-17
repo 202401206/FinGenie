@@ -21,12 +21,20 @@ export class ApiError extends Error {
   }
 }
 
+export const RECOVERY_PENDING_CODES = ['reconciliation_required', 'cleanup_required', 'state_conflict'];
+
+export function isRecoveryPending(error) {
+  if (!error) return false;
+  return error.status === 503 && RECOVERY_PENDING_CODES.includes(error.code);
+}
+
 /**
  * Normalizes FastAPI string, object, and array error shapes
+ * Preserves backend detail message and code where provided.
  */
 export function normalizeError(status, data) {
   let code = `http_${status}`;
-  let message = 'An unexpected error occurred. Please try again.';
+  let message = '';
 
   if (data?.detail) {
     if (typeof data.detail === 'string') {
@@ -41,14 +49,17 @@ export function normalizeError(status, data) {
     }
   }
 
-  // Fallbacks for standard HTTP codes per Sprint 1 specification
-  if (status === 401) message = 'Your session has expired. Please sign in again.';
-  if (status === 404) message = 'Workspace or document not found.';
-  if (status === 409) message = 'Unsupported document type or workspace state conflict.';
-  if (status === 413) message = 'File is too large. Maximum supported size is 5 MiB.';
-  if (status === 415) message = 'Unsupported file format. Please upload a valid .csv or .xlsx file.';
-  if (status === 422 && code !== 'validation_error') message = 'Document layout or processing validation failed.';
-  if (status === 503) message = 'Service temporarily unavailable. Please retry shortly.';
+  // Fallbacks only when no specific message was extracted from detail
+  if (!message) {
+    if (status === 401) message = 'Your session has expired. Please sign in again.';
+    else if (status === 404) message = 'Workspace or document not found.';
+    else if (status === 409) message = 'Unsupported document type or workspace state conflict.';
+    else if (status === 413) message = 'File is too large. Maximum supported size is 5 MiB.';
+    else if (status === 415) message = 'Unsupported file format. Please upload a valid .csv or .xlsx file.';
+    else if (status === 422) message = 'Document layout or processing validation failed.';
+    else if (status === 503) message = 'Service temporarily unavailable. Please retry shortly.';
+    else message = 'An unexpected error occurred. Please try again.';
+  }
 
   return new ApiError(status, code, message, data?.detail);
 }

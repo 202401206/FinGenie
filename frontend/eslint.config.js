@@ -11,9 +11,14 @@ export default [
       ecmaVersion: "latest",
       sourceType: "module",
       parserOptions: { ecmaFeatures: { jsx: true } },
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+      },
     },
-    plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
+    plugins: {
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
+    },
     rules: {
       ...js.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
@@ -25,6 +30,14 @@ export default [
         "warn",
         { allowConstantExport: true },
       ],
+    },
+  },
+  {
+    files: ["tests/**", "run-tests.js", "vite.config.js"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
     },
   },
 ];

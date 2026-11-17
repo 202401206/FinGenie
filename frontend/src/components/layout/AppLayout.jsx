@@ -2,7 +2,7 @@ import React from 'react';
 import Sidebar from './Sidebar.jsx';
 import './AppLayout.css';
 
-export const PAGE_INFO = {
+const PAGE_INFO = {
   home: {
     title: 'Upload Bank Statement',
     subtitle: 'Upload your bank statement (CSV or XLSX) to parse records and generate financial insights'

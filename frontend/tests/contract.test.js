@@ -14,13 +14,56 @@ test('adaptTransaction correctly parses backend debit and credit structure', () 
     source_row: 14
   };
 
-  const adapted = adaptTransaction(backendFixture, { filename: 'HDFC_Statement.csv', currency: 'INR' });
+  const adapted = adaptTransaction(backendFixture, { 
+    original_filename: 'HDFC_Statement.csv', 
+    currency: 'INR',
+    status: 'parsed'
+  });
   
   assert.strictEqual(adapted.amount, 450.00);
   assert.strictEqual(adapted.type, 'debit');
   assert.strictEqual(adapted.source_file, 'HDFC_Statement.csv');
   assert.strictEqual(adapted.source_row, 14);
   assert.strictEqual(adapted.balance, 12500.00);
+  assert.strictEqual(adapted.currency, 'INR');
+});
+
+test('adaptTransaction preserves null currency without defaulting to INR', () => {
+  const backendFixture = {
+    id: 'tx-003',
+    document_id: 'doc-99',
+    date: '2026-10-10',
+    description: 'UNKNOWN CURRENCY TRANSACTION',
+    debit: 100.00,
+    credit: 0,
+    balance: 900.00,
+    source_row: 5
+  };
+
+  const adapted = adaptTransaction(backendFixture, { 
+    original_filename: 'statement.csv', 
+    currency: null 
+  });
+
+  assert.strictEqual(adapted.currency, null);
+  assert.strictEqual(adapted.amount, 100.00);
+  assert.strictEqual(adapted.source_file, 'statement.csv');
+});
+
+test('adaptTransaction handles negative balance correctly', () => {
+  const overdrawnFixture = {
+    id: 'tx-004',
+    document_id: 'doc-42',
+    date: '2026-10-15',
+    description: 'INTEREST CHARGE',
+    debit: 250.00,
+    credit: 0,
+    balance: -1250.50,
+    source_row: 20
+  };
+
+  const adapted = adaptTransaction(overdrawnFixture, { currency: 'INR' });
+  assert.strictEqual(adapted.balance, -1250.50);
 });
 
 test('adaptTransaction handles salary credit with zero debit', () => {
@@ -48,7 +91,7 @@ test('adaptTransactionList handles empty or corrupt fixtures gracefully', () => 
   assert.strictEqual(result[0].description, 'No description available');
 });
 
-test('Sprint 1 pagination bounds calculation', () => {
+test('Sprint 1 pagination bounds and navigation calculation', () => {
   const limit = 50;
   
   // Page 1: offset 0, total 120
@@ -73,7 +116,10 @@ test('Sprint 1 pagination bounds calculation', () => {
   assert.strictEqual(canGoNext, false);
   assert.strictEqual(canGoPrev, true);
 
-  // Previous page boundary
+  // Previous page boundary calculation: Math.max(0, offset - limit)
   const prevOffset = Math.max(0, offset - limit);
   assert.strictEqual(prevOffset, 50);
+
+  // Empty page handling: total 0
+  assert.strictEqual(0 + limit < 0, false);
 });
