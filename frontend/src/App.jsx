@@ -43,130 +43,203 @@ function PlaceholderPage({ title, description }) {
   );
 }
 
+/**
+ * Ledger state: holds everything associated with one workspace+page load.
+ * Published atomically so the UI never mixes results from different contexts.
+ */
+const EMPTY_LEDGER = {
+  workspaceId: null,
+  workspace: null,
+  documentMetadata: null,
+  transactions: [],
+  total: 0,
+  offset: 0,
+  loading: false,
+  error: null,
+};
+
 export function App() {
   const { session, user, loading, signOut } = useAuth();
   const [authView, setAuthView] = useState('login'); // 'login' | 'signup'
-  const [activePage, setActivePage] = useState('home'); // 'home' | 'transactions' | 'dashboard' | 'assistant' | 'chat-history' | 'settings'
+  const [activePage, setActivePage] = useState('home');
   const [isDemoMode, setIsDemoMode] = useState(false);
 
-  // Selected workspace and transaction ledger state
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null);
-  const [selectedWorkspace, setSelectedWorkspace] = useState(null);
-  const [documentMetadata, setDocumentMetadata] = useState(null);
-  const [transactions, setTransactions] = useState([]);
-  const [totalTransactions, setTotalTransactions] = useState(0);
-  const [transactionsOffset, setTransactionsOffset] = useState(0);
+  // The drawer binds to the workspace it was opened from.
+  // Clearing ledger also closes the drawer.
+  const [selectedTx, setSelectedTx] = useState(null);
+  const [ledgerCtxId, setLedgerCtxId] = useState(null); // workspace context the drawer belongs to
+
+  // Single atomic ledger state — never partially updated across workspaces
+  const [ledger, setLedger] = useState(EMPTY_LEDGER);
+
+  // Request-generation counter: incremented on every new workspace selection,
+  // account change, or unmount. Any response carrying an older generation is dropped.
+  const requestGenRef = useRef(0);
   const transactionsLimit = 50;
 
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [ledgerError, setLedgerError] = useState(null);
-  const [selectedTx, setSelectedTx] = useState(null);
-
-  // Stale request guard ref
-  const activeRequestIdRef = useRef(0);
-
-  // Clear financial state on account change or logout
-  const currentUserId = user?.id || null;
+  // ── Account boundary ────────────────────────────────────────────────────────
+  // When the authenticated user ID changes (login, logout, account switch),
+  // invalidate all in-flight requests and clear all workspace/ledger state.
+  const currentUserId = user?.id ?? null;
   useEffect(() => {
-    setSelectedWorkspaceId(null);
-    setSelectedWorkspace(null);
-    setDocumentMetadata(null);
-    setTransactions([]);
-    setTotalTransactions(0);
-    setTransactionsOffset(0);
-    setLedgerError(null);
+    requestGenRef.current += 1;
+    setLedger(EMPTY_LEDGER);
     setSelectedTx(null);
+    setLedgerCtxId(null);
     setIsDemoMode(false);
-    activeRequestIdRef.current += 1;
   }, [currentUserId]);
 
+  // ── Core ledger loader ───────────────────────────────────────────────────────
   const loadWorkspaceLedger = useCallback(async (workspaceId, offset = 0) => {
     if (!workspaceId) return;
 
-    const requestId = ++activeRequestIdRef.current;
-    setLedgerLoading(true);
-    setLedgerError(null);
+    // Stamp this request so stale responses can be discarded
+    const gen = ++requestGenRef.current;
+
+    // Clear stale data immediately so the UI never shows old rows under a new workspace
+    setLedger({
+      ...EMPTY_LEDGER,
+      workspaceId,
+      loading: true,
+    });
+    setSelectedTx(null); // close any open drawer from the previous context
 
     try {
-      // 1. Load workspace details and document metadata
+      // ── Step 1: workspace detail + document metadata ──────────────────────
       const details = await getWorkspaceDetail(workspaceId);
-      if (activeRequestIdRef.current !== requestId) return;
 
-      const ws = details?.workspace || null;
-      setSelectedWorkspace(ws);
+      // Drop if a newer request has started (account change or different workspace)
+      if (requestGenRef.current !== gen) return;
 
-      // Only parsed documents represent completed processing per Sprint 1 spec
-      const parsedDoc = Array.isArray(details?.documents)
-        ? details.documents.find(d => d.status === 'parsed') || details.documents[0]
-        : null;
-
-      const docMeta = parsedDoc ? {
-        id: parsedDoc.id,
-        original_filename: parsedDoc.original_filename,
-        currency: parsedDoc.currency || null,
-        status: parsedDoc.status,
-        period_start: parsedDoc.period_start,
-        period_end: parsedDoc.period_end
-      } : {
-        original_filename: ws?.name || 'Workspace Document',
-        currency: null,
-        status: 'parsed'
-      };
-
-      setDocumentMetadata(docMeta);
-
-      // 2. Load paginated transactions from backend
-      const txPage = await getWorkspaceTransactions(workspaceId, transactionsLimit, offset);
-      if (activeRequestIdRef.current !== requestId) return;
-
-      const rawItems = Array.isArray(txPage?.items) ? txPage.items : [];
-      const totalCount = typeof txPage?.total === 'number' ? txPage.total : rawItems.length;
-
-      const adapted = adaptTransactionList(rawItems, docMeta);
-      setTransactions(adapted);
-      setTotalTransactions(totalCount);
-      setTransactionsOffset(offset);
-      setLedgerLoading(false);
-    } catch (err) {
-      if (activeRequestIdRef.current !== requestId) return;
-      setLedgerLoading(false);
-      if (err.status === 404) {
-        setLedgerError('Workspace unavailable or not found. It may belong to another user or have been removed.');
-      } else {
-        setLedgerError(err.message || 'Failed to load workspace transactions.');
+      // Validate that the response has the expected shape
+      if (!details || typeof details !== 'object') {
+        setLedger({ ...EMPTY_LEDGER, workspaceId, error: 'Received an unexpected response from the server.' });
+        return;
       }
+
+      const ws = details.workspace ?? null;
+
+      // Validate documents array — a missing or non-array field is a shape error, not "empty"
+      if (!Array.isArray(details.documents)) {
+        setLedger({ ...EMPTY_LEDGER, workspaceId, workspace: ws, error: 'Server response is missing document information.' });
+        return;
+      }
+
+      // Determine document readiness
+      // Per Sprint 1 spec, only 'parsed' status means processing is complete.
+      const parsedDoc = details.documents.find(d => d.status === 'parsed') ?? null;
+      const firstDoc  = details.documents[0] ?? null;
+
+      let documentMetadata = null;
+      let preError = null;
+
+      if (details.documents.length === 0) {
+        // No document associated — may be an interrupted upload
+        preError = 'No document is available for this workspace. The upload may have been interrupted.';
+      } else if (!parsedDoc) {
+        // Document exists but is not yet parsed — represent the actual status
+        const actualStatus = firstDoc?.status ?? 'unknown';
+        if (actualStatus === 'failed') {
+          preError = 'Document processing failed. Please upload a new statement or contact support.';
+        } else {
+          preError = `Document is not yet ready (status: ${actualStatus}). Sprint 1 has no background polling — please re-open this workspace later.`;
+        }
+        // Surface the real doc metadata even though it's not parsed, so the UI can show the filename
+        documentMetadata = {
+          id: firstDoc?.id ?? null,
+          original_filename: firstDoc?.original_filename ?? null,
+          currency: firstDoc?.currency ?? null,
+          status: actualStatus,
+          period_start: firstDoc?.period_start ?? null,
+          period_end: firstDoc?.period_end ?? null,
+        };
+      } else {
+        documentMetadata = {
+          id: parsedDoc.id,
+          original_filename: parsedDoc.original_filename,
+          currency: parsedDoc.currency ?? null,
+          status: parsedDoc.status,
+          period_start: parsedDoc.period_start ?? null,
+          period_end: parsedDoc.period_end ?? null,
+        };
+      }
+
+      // If there's a doc readiness error, surface it and stop — do not attempt to load transactions
+      if (preError) {
+        setLedger({ ...EMPTY_LEDGER, workspaceId, workspace: ws, documentMetadata, error: preError });
+        return;
+      }
+
+      // ── Step 2: paginated transactions ────────────────────────────────────
+      const txPage = await getWorkspaceTransactions(workspaceId, transactionsLimit, offset);
+
+      if (requestGenRef.current !== gen) return;
+
+      // Validate transaction page shape — missing/non-array items is a shape error
+      if (!txPage || typeof txPage !== 'object' || !Array.isArray(txPage.items)) {
+        setLedger({ ...EMPTY_LEDGER, workspaceId, workspace: ws, documentMetadata, error: 'Server returned an unexpected transaction response shape.' });
+        return;
+      }
+
+      const rawItems = txPage.items;
+      const totalCount = typeof txPage.total === 'number' ? txPage.total : rawItems.length;
+      const adapted = adaptTransactionList(rawItems, documentMetadata);
+
+      // Publish workspace + document + transactions atomically
+      setLedger({
+        workspaceId,
+        workspace: ws,
+        documentMetadata,
+        transactions: adapted,
+        total: totalCount,
+        offset,
+        loading: false,
+        error: null,
+      });
+      setLedgerCtxId(workspaceId);
+    } catch (err) {
+      if (requestGenRef.current !== gen) return;
+
+      let errorMsg;
+      if (err.status === 404) {
+        errorMsg = 'Workspace not found. It may belong to another account or have been removed.';
+      } else {
+        errorMsg = err.message || 'Failed to load workspace data.';
+      }
+
+      // On error: clear rows — never show stale rows from a different workspace
+      setLedger({ ...EMPTY_LEDGER, workspaceId, error: errorMsg });
     }
   }, [transactionsLimit]);
 
-  // When a workspace is selected (from Upload page or Recent Documents list)
-  const handleSelectWorkspace = (workspaceId, workspaceData = null) => {
-    setSelectedWorkspaceId(workspaceId);
-    if (workspaceData) setSelectedWorkspace(workspaceData);
-    setTransactionsOffset(0);
+  // ── Workspace selection ─────────────────────────────────────────────────────
+  const handleSelectWorkspace = useCallback((workspaceId) => {
     setActivePage('transactions');
     loadWorkspaceLedger(workspaceId, 0);
-  };
+  }, [loadWorkspaceLedger]);
 
-  const handlePageChange = (newOffset) => {
+  // ── Page change ─────────────────────────────────────────────────────────────
+  const handlePageChange = useCallback((newOffset) => {
     if (isDemoMode) {
-      setTransactionsOffset(newOffset);
+      setLedger(prev => ({ ...prev, offset: newOffset }));
       return;
     }
-    if (selectedWorkspaceId) {
-      loadWorkspaceLedger(selectedWorkspaceId, newOffset);
+    if (ledger.workspaceId) {
+      loadWorkspaceLedger(ledger.workspaceId, newOffset);
     }
-  };
+  }, [isDemoMode, ledger.workspaceId, loadWorkspaceLedger]);
 
+  // ── Logout ──────────────────────────────────────────────────────────────────
   const handleLogout = async () => {
+    requestGenRef.current += 1;
     setIsDemoMode(false);
-    setSelectedWorkspaceId(null);
-    setSelectedWorkspace(null);
-    setDocumentMetadata(null);
-    setTransactions([]);
+    setLedger(EMPTY_LEDGER);
     setSelectedTx(null);
+    setLedgerCtxId(null);
     await signOut();
   };
 
+  // ── Auth loading screen ─────────────────────────────────────────────────────
   if (loading) {
     return (
       <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#F4F7F5', color: '#18352F', fontFamily: 'sans-serif' }}>
@@ -175,7 +248,7 @@ export function App() {
     );
   }
 
-  // If not logged in and not in demo mode, show Auth flow
+  // ── Auth flow ───────────────────────────────────────────────────────────────
   if (!session && !isDemoMode) {
     if (authView === 'signup') {
       return (
@@ -194,13 +267,11 @@ export function App() {
     );
   }
 
-  // Prepared demo transactions ONLY when in explicit demo mode
-  const demoList = adaptTransactionList(DEMO_TRANSACTIONS, {
-    original_filename: 'HDFC_Statement_Oct2026.csv',
-    currency: 'INR',
-    status: 'parsed'
-  });
+  // ── Demo data (isolated from real workspace data) ───────────────────────────
+  const demoDocMeta = { original_filename: 'HDFC_Statement_Oct2026.csv', currency: 'INR', status: 'parsed' };
+  const demoList = adaptTransactionList(DEMO_TRANSACTIONS, demoDocMeta);
 
+  // ── Page renderer ───────────────────────────────────────────────────────────
   function renderPageContent() {
     switch (activePage) {
       case 'home':
@@ -215,7 +286,7 @@ export function App() {
               total={demoList.length}
               offset={0}
               limit={50}
-              documentMetadata={{ original_filename: 'HDFC_Statement_Oct2026.csv', currency: 'INR', status: 'parsed' }}
+              documentMetadata={demoDocMeta}
               analysisKpis={{ total_inflow: 125000, total_outflow: 28649, closing_balance: 142350.50 }}
               onSelectTransaction={setSelectedTx}
               onNavigateUpload={() => setActivePage('home')}
@@ -223,27 +294,19 @@ export function App() {
           );
         }
 
-        if (!selectedWorkspaceId) {
+        if (!ledger.workspaceId) {
           return (
             <div style={{ padding: '64px 32px', textAlign: 'center' }}>
               <div style={{ maxWidth: '480px', margin: '0 auto', background: 'white', padding: '36px', borderRadius: '12px', border: '1px solid #e5ebe7' }}>
                 <div style={{ fontSize: '32px', marginBottom: '12px' }}>📊</div>
                 <h2 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 8px 0', color: '#18352f' }}>No workspace selected</h2>
                 <p style={{ color: '#66776d', fontSize: '14px', lineHeight: 1.5, margin: '0 0 20px 0' }}>
-                  Please upload a bank statement or select an existing workspace from your Recent Documents to inspect its transactions ledger.
+                  Upload a bank statement or select an existing workspace from your Recent Documents.
                 </p>
                 <button
                   type="button"
                   onClick={() => setActivePage('home')}
-                  style={{
-                    background: '#1d8a60',
-                    color: 'white',
-                    border: 'none',
-                    padding: '10px 18px',
-                    borderRadius: '8px',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
+                  style={{ background: '#1d8a60', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}
                 >
                   Go to Upload / Recent Documents →
                 </button>
@@ -254,16 +317,19 @@ export function App() {
 
         return (
           <TransactionHistoryPage
-            transactions={transactions}
-            total={totalTransactions}
-            offset={transactionsOffset}
+            transactions={ledger.transactions}
+            total={ledger.total}
+            offset={ledger.offset}
             limit={transactionsLimit}
-            loading={ledgerLoading}
-            error={ledgerError}
-            documentMetadata={documentMetadata || { original_filename: selectedWorkspace?.name || 'Workspace Document', currency: null }}
+            loading={ledger.loading}
+            error={ledger.error}
+            documentMetadata={ledger.documentMetadata}
             analysisKpis={null}
             onPageChange={handlePageChange}
-            onSelectTransaction={setSelectedTx}
+            onSelectTransaction={(tx) => {
+              setSelectedTx(tx);
+              setLedgerCtxId(ledger.workspaceId);
+            }}
             onNavigateUpload={() => setActivePage('home')}
           />
         );
@@ -300,6 +366,10 @@ export function App() {
     }
   }
 
+  // The drawer is only shown when its context matches the currently loaded workspace.
+  // Switching workspaces clears selectedTx which closes the drawer automatically.
+  const drawerOpen = Boolean(selectedTx) && (!ledger.workspaceId || ledgerCtxId === ledger.workspaceId);
+
   return (
     <>
       <AppLayout
@@ -313,7 +383,7 @@ export function App() {
 
       <TransactionDetailDrawer
         transaction={selectedTx}
-        isOpen={Boolean(selectedTx)}
+        isOpen={drawerOpen}
         onClose={() => setSelectedTx(null)}
       />
     </>

@@ -65,8 +65,16 @@ function formatWorkspaceDate(dateValue) {
 }
 
 export default function UploadPage({ onSelectWorkspace }) {
-  const { session, loading: authLoading } = useAuth();
+  const { session, user, loading: authLoading } = useAuth();
   const fileInputRef = useRef(null);
+
+  // Track the authenticated user ID so we can detect account switches.
+  // A routine access-token refresh for the SAME user does not change this value.
+  const currentUserId = user?.id ?? null;
+
+  // Upload-request generation counter: incremented on each upload attempt and
+  // on account change so a late response from an older user/request is ignored.
+  const uploadGenRef = useRef(0);
 
   // Form state.
   const [userType, setUserType] = useState("personal");
@@ -84,6 +92,28 @@ export default function UploadPage({ onSelectWorkspace }) {
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
 
   const hasSession = Boolean(session?.access_token);
+
+  /**
+   * When the authenticated user ID changes (login, logout, account switch),
+   * clear all upload-specific state so the new user cannot see the previous
+   * user's selected file or upload receipt.
+   * A same-user token refresh keeps currentUserId unchanged, so this effect
+   * does NOT fire and the form state is preserved.
+   */
+  useEffect(() => {
+    // Invalidate any in-flight upload for the previous account
+    uploadGenRef.current += 1;
+
+    // Reset form
+    setFile(null);
+    setStatus("idle");
+    setError("");
+    setResult(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }, [currentUserId]);
 
   /**
    * Fetch recent workspaces whenever:
@@ -209,6 +239,8 @@ export default function UploadPage({ onSelectWorkspace }) {
 
   /**
    * Import Statement sends the actual upload request.
+   * Associates this upload with the current account (uploadGenRef) so a late
+   * response from a previous account or stale request is silently discarded.
    */
   async function handleImportStatement() {
     if (status === "uploading") {
@@ -231,11 +263,17 @@ export default function UploadPage({ onSelectWorkspace }) {
     setResult(null);
     setStatus("uploading");
 
+    // Stamp this upload request; any response with a different generation is stale
+    const uploadGen = ++uploadGenRef.current;
+
     try {
       const response = await uploadBankStatement({
         userType,
         file,
       });
+
+      // Discard if account changed or component unmounted while upload was in flight
+      if (uploadGenRef.current !== uploadGen) return;
 
       // The backend has successfully created the workspace.
       setResult(response);
@@ -244,6 +282,8 @@ export default function UploadPage({ onSelectWorkspace }) {
       // Refresh Recent Documents after successful upload.
       setWorkspaceRefreshKey((current) => current + 1);
     } catch (uploadError) {
+      // Discard late error responses from a previous account/request
+      if (uploadGenRef.current !== uploadGen) return;
       const isNetworkError =
         uploadError instanceof TypeError ||
         uploadError.code === "NETWORK_ERROR";
