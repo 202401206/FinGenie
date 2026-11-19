@@ -207,8 +207,9 @@ export function App() {
         errorMsg = err.message || 'Failed to load workspace data.';
       }
 
-      // On error: clear rows — never show stale rows from a different workspace
-      setLedger({ ...EMPTY_LEDGER, workspaceId, error: errorMsg });
+      // On error: clear rows — never show stale rows from a different workspace.
+      // Preserve workspaceId and offset so a Retry can re-request the same page.
+      setLedger({ ...EMPTY_LEDGER, workspaceId, offset, error: errorMsg });
     }
   }, [transactionsLimit]);
 
@@ -217,6 +218,15 @@ export function App() {
     setActivePage('transactions');
     loadWorkspaceLedger(workspaceId, 0);
   }, [loadWorkspaceLedger]);
+
+  // ── Page navigation — clears the drawer when leaving Transactions ───────────
+  const handleNavigate = useCallback((page) => {
+    if (page !== 'transactions') {
+      // Leaving the transactions page: close any open drawer
+      setSelectedTx(null);
+    }
+    setActivePage(page);
+  }, []);
 
   // ── Page change ─────────────────────────────────────────────────────────────
   const handlePageChange = useCallback((newOffset) => {
@@ -228,6 +238,15 @@ export function App() {
       loadWorkspaceLedger(ledger.workspaceId, newOffset);
     }
   }, [isDemoMode, ledger.workspaceId, loadWorkspaceLedger]);
+
+  // ── Retry — re-runs the same workspace + offset that failed ─────────────────
+  // Uses ledger.workspaceId and ledger.offset which are preserved even on failure,
+  // so retrying a failed page 2 request actually retries page 2, not page 1.
+  const handleRetry = useCallback(() => {
+    if (ledger.workspaceId) {
+      loadWorkspaceLedger(ledger.workspaceId, ledger.offset);
+    }
+  }, [ledger.workspaceId, ledger.offset, loadWorkspaceLedger]);
 
   // ── Logout ──────────────────────────────────────────────────────────────────
   const handleLogout = async () => {
@@ -288,8 +307,11 @@ export function App() {
               limit={50}
               documentMetadata={demoDocMeta}
               analysisKpis={{ total_inflow: 125000, total_outflow: 28649, closing_balance: 142350.50 }}
-              onSelectTransaction={setSelectedTx}
-              onNavigateUpload={() => setActivePage('home')}
+              onSelectTransaction={(tx) => {
+                setSelectedTx(tx);
+                setLedgerCtxId('demo');
+              }}
+              onNavigateUpload={() => handleNavigate('home')}
             />
           );
         }
@@ -326,11 +348,12 @@ export function App() {
             documentMetadata={ledger.documentMetadata}
             analysisKpis={null}
             onPageChange={handlePageChange}
+            onRetry={handleRetry}
             onSelectTransaction={(tx) => {
               setSelectedTx(tx);
               setLedgerCtxId(ledger.workspaceId);
             }}
-            onNavigateUpload={() => setActivePage('home')}
+            onNavigateUpload={() => handleNavigate('home')}
           />
         );
 
@@ -366,15 +389,20 @@ export function App() {
     }
   }
 
-  // The drawer is only shown when its context matches the currently loaded workspace.
-  // Switching workspaces clears selectedTx which closes the drawer automatically.
-  const drawerOpen = Boolean(selectedTx) && (!ledger.workspaceId || ledgerCtxId === ledger.workspaceId);
+  // The drawer is only shown when:
+  // 1. A transaction is selected
+  // 2. The active page is 'transactions' (navigating away closes it)
+  // 3. The drawer's context matches the current workspace (workspace switch closes it)
+  // Demo mode uses its own context ('demo') distinct from any real workspace ID.
+  const drawerOpen = Boolean(selectedTx)
+    && activePage === 'transactions'
+    && (isDemoMode ? ledgerCtxId === 'demo' : (ledgerCtxId === ledger.workspaceId && Boolean(ledger.workspaceId)));
 
   return (
     <>
       <AppLayout
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={handleNavigate}
         user={user || (isDemoMode ? { email: 'Demo Mode (Preview)' } : null)}
         onLogout={handleLogout}
       >
