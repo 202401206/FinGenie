@@ -183,6 +183,12 @@
   box-shadow: 0 0 0 3px rgb(35 96 71 / 10%);
 }
 
+.settings-field input:disabled,
+.settings-field select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .settings-helper {
   margin: 16px 0 0;
   color: var(--settings-muted);
@@ -213,8 +219,13 @@
     background 150ms ease;
 }
 
-.theme-option:hover {
+.theme-option:hover:not(:disabled) {
   border-color: var(--settings-accent);
+}
+
+.theme-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .theme-option.selected {
@@ -345,7 +356,8 @@
   cursor: pointer;
   transition:
     background 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    opacity 150ms ease;
 }
 
 .delete-button {
@@ -355,7 +367,7 @@
   color: #ad3028;
 }
 
-.delete-button:hover {
+.delete-button:hover:not(:disabled) {
   background: #ffebe7;
 }
 
@@ -363,6 +375,12 @@
   border: 1px solid var(--settings-border);
   background: var(--settings-card);
   color: var(--settings-text);
+}
+
+.delete-button:disabled,
+.cancel-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .delete-confirmation {
@@ -410,6 +428,56 @@
   color: var(--settings-muted);
   font-size: 12px;
   text-align: center;
+}
+
+/* Account save action */
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.settings-save-button {
+  min-height: 43px;
+  padding: 11px 19px;
+  border: 1px solid #236047;
+  border-radius: 10px;
+  background: #236047;
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    opacity 150ms ease;
+}
+
+.settings-save-button:hover:not(:disabled) {
+  background: #194b36;
+}
+
+.settings-save-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.theme-dark .settings-save-button {
+  border-color: #91c5a5;
+  background: #91c5a5;
+  color: #17231e;
+}
+
+.theme-dark .settings-save-button:hover:not(:disabled) {
+  background: #a7d4b8;
+}
+
+/* Backend validation and API errors */
+.settings-action-error {
+  margin: 14px 0 0;
+  color: var(--settings-danger);
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 @media (max-width: 650px) {
