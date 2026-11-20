@@ -11,6 +11,7 @@ from app.db.dependencies import get_parsed_document_repository, get_workspace_re
 from app.main import app as production_app
 from app.services.source_dependencies import (
     get_source_upload_access,
+    get_upload_attempt_service,
     get_upload_recovery_service,
 )
 from app.services.source_errors import SourceOutcomeUnknown
@@ -43,6 +44,9 @@ def upload_client():
     app.dependency_overrides[get_parsed_document_repository] = lambda: harness.save
     app.dependency_overrides[get_upload_recovery_service] = lambda: harness.recovery
     app.dependency_overrides[get_workspace_repository] = lambda: harness.reads
+    # These route-isolation tests use controlled collaborators; journal ordering
+    # and durable SQL behavior have their own production-flow integration tests.
+    app.dependency_overrides[get_upload_attempt_service] = lambda: None
     with TestClient(app) as client:
         yield client, harness
 

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.core.security import get_auth_client, require_user
 from app.db.dependencies import get_parsed_document_repository
-from app.db.errors import UnsupportedDocumentType, WorkspaceNotFound
+from app.db.errors import WorkspaceNotFound
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
 from app.schemas.responses import CurrentUser
 from app.services.source_errors import (
@@ -182,7 +182,7 @@ def test_bad_statement_is_rejected_without_private_validation_details(case):
     assert "private" not in str(caught.value)
 
 
-def test_foreign_owner_and_unsupported_type_stop_before_the_request():
+def test_foreign_owner_and_invalid_balance_data_stop_before_the_request():
     def unexpected(request):
         pytest.fail("An invalid caller/context must not reach the database.")
 
@@ -190,7 +190,7 @@ def test_foreign_owner_and_unsupported_type_stop_before_the_request():
     with pytest.raises(ValueError):
         run_save(unexpected, foreign, parsed_statement(foreign))
     balance_sheet = make_attempt(user_type="business", document_type="balance_sheet")
-    with pytest.raises(UnsupportedDocumentType):
+    with pytest.raises(ParsedDocumentRejected):
         run_save(unexpected, balance_sheet, {})
 
 

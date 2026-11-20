@@ -15,9 +15,11 @@ from app.schemas.upload_responses import UploadResponse
 from app.services.source_dependencies import (
     SourceUploadAccess,
     get_source_upload_access,
+    get_upload_attempt_service,
     get_upload_recovery_service,
 )
 from app.services.upload import BankParser, UploadProcessingError, UploadService
+from app.services.upload_attempts import UploadAttemptService
 from app.services.upload_recovery import UploadRecoveryService
 from app.services.upload_validation import (
     DEFAULT_POLICY,
@@ -91,9 +93,10 @@ def create_upload_router(
             UploadRecoveryService, Depends(get_upload_recovery_service)
         ],
         workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
+        attempts: Annotated[UploadAttemptService, Depends(get_upload_attempt_service)],
     ) -> UploadResponse:
         service = UploadService(
-            parser, access, save, recovery, workspaces, policy=policy
+            parser, access, save, recovery, workspaces, policy=policy, attempts=attempts
         )
         try:
             async with request.form(

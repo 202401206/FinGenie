@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run.mjs"
+    "test": "node run.mjs",
+    "test:security": "node security-audit.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.3.14"

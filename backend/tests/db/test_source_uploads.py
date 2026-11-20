@@ -44,7 +44,7 @@ def test_reservation_uses_one_user_scoped_rpc_without_an_owner_parameter():
 
     def handle(request):
         assert request.method == "POST"
-        assert request.url.path == "/rest/v1/rpc/reserve_source_upload"
+        assert request.url.path == "/rest/v1/rpc/reserve_source_upload_at_generation"
         assert request.headers["authorization"] == "Bearer synthetic-token"
         body = json.loads(request.content)
         assert body == {
@@ -55,6 +55,7 @@ def test_reservation_uses_one_user_scoped_rpc_without_an_owner_parameter():
             "p_name": attempt.name,
             "p_original_filename": attempt.original_filename,
             "p_file_extension": "csv",
+            "p_generation": 0,
         }
         return httpx.Response(200, json=receipt(attempt))
 
@@ -173,7 +174,9 @@ def test_two_users_keep_their_tokens_and_paths_across_auth_rpc_and_storage():
         assert request.headers["apikey"] == "sb_publishable_synthetic"
         if request.url.path == "/auth/v1/user":
             return httpx.Response(200, json={"id": str(user_id)})
-        if request.url.path == "/rest/v1/rpc/reserve_source_upload":
+        if request.url.path.endswith("/get_upload_generation"):
+            return httpx.Response(200, json={"generation": 0})
+        if request.url.path == "/rest/v1/rpc/reserve_source_upload_at_generation":
             body = json.loads(request.content)
             attempt = SourceAttempt(
                 user_id=user_id,
@@ -197,5 +200,5 @@ def test_two_users_keep_their_tokens_and_paths_across_auth_rpc_and_storage():
                 "/source-test", headers={"Authorization": f"Bearer {token}"}
             )
             assert response.status_code == 200
-    assert len(order) == 9
-    assert all(order[index] == "/auth/v1/user" for index in (0, 3, 6))
+    assert len(order) == 12
+    assert all(order[index] == "/auth/v1/user" for index in (0, 4, 8))
