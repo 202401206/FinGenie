@@ -61,3 +61,62 @@ Storage INSERT additionally requires the matching pending document and no
 cancellation. Reads/deletes retain their owner-prefix rules. The API/parser
 owners still need to connect their public workflows to these helpers.
 Never publish real financial data in migrations, seed files, fixtures or logs.
+
+## Sprint 2 balance snapshot finalization
+
+The local migration `20261116201152_finalize_balance_sheet.sql` adds
+`finalize_balance_sheet(workspace_id, document_id, parsed_json)`. It adds no tables
+or columns. Business balance data remains in `documents.parsed_json`, with known
+currency in metadata and bank period columns null. Reporting date, unit scale,
+prior periods and traceability stay in JSON; reported amounts are not rescaled.
+The operation returns a zero transaction count and inserts no bank transactions.
+
+The function runs with caller privileges/RLS, checks the owned pending document
+and canonical registered source, respects cancellation, and uses the existing
+upload lock order. It saves metadata/JSON/status atomically and rejects repeats.
+This file has been tested locally, not deployed by this work. Balance parser,
+public dispatch and recovery integration are separate milestones; keep public
+balance uploads disabled until those pieces are reviewed together.
+
+## Settings and financial-data deletion
+
+The local settings migration adds `user_preferences` (owner UUID, selected currency
+and theme), `financial_data_state` (owner and monotonically increasing upload
+generation), `data_deletion_jobs` (owner-scoped operation UUID/status/timestamps)
+and `data_deletion_sources` (owned source path/removal progress).
+
+Owner RLS and narrow grants protect these tables. Invoker RPCs perform atomic
+partial preference updates and resumable deletion. Evidence triggers prevent
+generation rollback, false source-removal acknowledgements and unverified job
+completion; journal insertion initializes the snapshot/generation even through a
+direct owner table insert. Source paths are purged after successful completion.
+No Auth tokens or parsed financial JSON are stored in these deletion tables.
+
+Financial deletion keeps Auth identities and preferences. Existing cancellation
+UUIDs and generation counters remain to reject late upload/finalization writes.
+The account lock precedes existing workspace locks; uploads are blocked while a
+deletion is pending. No new financial rows or currency conversion are introduced.
+See [settings handoff](settings-api-handoff.md). Hosted deployment is still a
+separate reviewed step; embedded tests do not replace actual Storage verification.
+
+The balance recovery migration adds a reconciliation RPC only, with no new table
+or status. Completed balances must match full expected JSON/metadata, have a
+registered canonical source and zero transaction rows. Unfinished attempts reuse
+existing cancellation and failed-source release rules.
+
+## Durable upload-attempt journal
+
+P4 adds upload_attempts with an attempt UUID, verified owner, original workspace
+and document UUIDs, generation, user/document type, source kind/name/filename,
+expected parsed JSON, status, safe error code, optional verified receipt,
+revision and timestamps. It has no workspace FK because it is created before
+reservation and survives unsuccessful metadata cleanup. Owner RLS, narrow column
+grants and evidence triggers protect immutable context and state transitions.
+
+Pending, completed, cleaned and needs_review are journal states, not new document
+statuses. Completion rechecks the saved snapshot/source; cleanup requires
+cancellation and verified absence. Context remains until owner financial-data
+deletion, which also handles journal-only attempts and retains the separate
+cancellation/generation protections. There is no token storage or automatic worker.
+Public upload-attempt HTTP routes remain A4. See
+[internal handoff](sprint-2-upload-attempt-handoff.md) for exact interfaces.

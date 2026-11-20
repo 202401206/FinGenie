@@ -28,6 +28,7 @@ class SourceAttempt(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     user_id: UUID
+    upload_generation: int = Field(default=0, strict=True, ge=0)
     workspace_id: UUID = Field(default_factory=uuid4)
     document_id: UUID = Field(default_factory=uuid4)
     user_type: UserType

@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from app.core.security import require_user
-from app.db.errors import WorkspaceNotFound
+from app.db.errors import UnsupportedDocumentType, WorkspaceNotFound
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
 from app.db.repositories.source_uploads import SourceReservationRepository
 from app.db.repositories.upload_recovery import UploadRecoveryRepository
@@ -28,6 +28,7 @@ from app.services.source_errors import (
 )
 from app.services.source_storage import SourceStorage
 from app.services.upload_recovery import UploadRecoveryService
+from tests.db.test_balance_document_saves import balance_attempt, balance_statement
 from tests.db.test_parsed_documents import parsed_statement
 from tests.source_fixtures import OTHER, OWNER, make_attempt
 
@@ -113,7 +114,24 @@ class LocalSupabase:
             if function == "finalize_bank_statement" and self.reject_save:
                 return httpx.Response(503)
             arguments = {
-                "reserve_source_upload": [
+                "list_upload_attempts": [("limit", "integer"), ("offset", "integer")],
+                "create_upload_attempt": [
+                    ("attempt_id", "uuid"),
+                    ("context", "jsonb"),
+                    ("expected_json", "jsonb"),
+                ],
+                "begin_journal_recovery": [
+                    ("attempt_id", "uuid"),
+                    ("revision", "bigint"),
+                ],
+                "settle_upload_attempt": [
+                    ("attempt_id", "uuid"),
+                    ("revision", "bigint"),
+                    ("status", "text"),
+                    ("error_code", "text"),
+                ],
+                "get_upload_generation": [],
+                "reserve_source_upload_at_generation": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("user_type", "text"),
@@ -121,13 +139,25 @@ class LocalSupabase:
                     ("name", "text"),
                     ("original_filename", "text"),
                     ("file_extension", "text"),
+                    ("generation", "bigint"),
                 ],
                 "finalize_bank_statement": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("parsed_json", "jsonb"),
                 ],
+                "finalize_balance_sheet": [
+                    ("workspace_id", "uuid"),
+                    ("document_id", "uuid"),
+                    ("parsed_json", "jsonb"),
+                ],
                 "begin_upload_recovery": [
+                    ("workspace_id", "uuid"),
+                    ("document_id", "uuid"),
+                    ("file_extension", "text"),
+                    ("expected_json", "jsonb"),
+                ],
+                "begin_balance_sheet_recovery": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("file_extension", "text"),
@@ -145,7 +175,7 @@ class LocalSupabase:
                 expressions.append(f"($1::jsonb{operator}'p_{name}')::{kind}")
             result = self.query(
                 f"select public.{function}({','.join(expressions)})::text as body",
-                [request.content.decode()],
+                [request.content.decode()] if arguments else [],
                 user,
             )
             if "error" in result:
@@ -200,6 +230,7 @@ class LocalSupabase:
             "workspaces",
             "documents",
             "transactions",
+            "upload_attempts",
         }
         params = request.url.params
         values, filters = [], []
@@ -220,7 +251,13 @@ class LocalSupabase:
             order = " order by " + params["order"].replace(".", " ").replace(",", ", ")
         limit, offset = int(params.get("limit", "100")), int(params.get("offset", "0"))
         columns = params["select"]
-        assert all(c.replace("_", "").isalpha() for c in columns.split(","))
+        assert all(
+            c.replace("_", "").replace(":", "").isalpha() for c in columns.split(",")
+        )
+        columns = ",".join(
+            f"{c.split(':')[1]} as {c.split(':')[0]}" if ":" in c else c
+            for c in columns.split(",")
+        )
         result = self.query(
             f"select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb)::text as body from "
             f"(select {columns} from public.{table}{where}{order} limit {limit} offset {offset}) r",
@@ -310,10 +347,79 @@ def test_reserve_upload_save_read_and_two_user_isolation(database):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("currency,scale", [("INR", 100000), ("USD", 1), (None, None)])
+def test_balance_snapshot_round_trip_keeps_exact_values_and_owner_rls(
+    database, currency, scale
+):
+    server = LocalSupabase(database)
+
+    async def run():
+        async with helpers(server) as (client, user):
+            attempt = balance_attempt()
+            statement = balance_statement(attempt)
+            exact = Decimal("12345678901234567890.1234567890123456789")
+            statement.update(currency=currency, unit_scale=scale)
+            statement["assets"]["current"][0]["value"] = exact
+            statement["prior_period"] = {"total": exact}
+            statement["equity"]["retained_earnings"] = Decimal("-0.1234567890123456789")
+            receipt = await store(client, user.id, "token-a", attempt, statement)
+            assert receipt.transaction_count == 0
+            reads = WorkspaceRepository(client, user.id, "token-a")
+            context = await reads.get_parsed_document(attempt.workspace_id)
+            assert context.parsed_json.assets.current[0].value == exact
+            assert context.parsed_json.prior_period["total"] == exact
+            assert context.parsed_json.currency == currency
+            assert context.parsed_json.unit_scale == scale
+            assert context.parsed_json.equity.retained_earnings == Decimal(
+                "-0.1234567890123456789"
+            )
+            details = await reads.get_workspace(attempt.workspace_id)
+            assert details.documents[0].period_start is None
+            assert details.documents[0].period_end is None
+            assert "parsed_json" not in details.documents[0].model_dump()
+            with pytest.raises(UnsupportedDocumentType):
+                await reads.list_transactions(attempt.workspace_id)
+            assert (
+                database(
+                    "select count(*)::int as n from public.transactions where document_id=$1",
+                    [str(attempt.document_id)],
+                    user.id,
+                )["rows"][0]["n"]
+                == 0
+            )
+            async with helpers(server, "token-b") as (other, other_user):
+                with pytest.raises(WorkspaceNotFound):
+                    await WorkspaceRepository(
+                        other, other_user.id, "token-b"
+                    ).get_parsed_document(attempt.workspace_id)
+
+    asyncio.run(run())
+
+
+def test_lost_balance_receipt_preserves_completed_snapshot_and_source(database):
+    server = LocalSupabase(database)
+
+    async def run():
+        async with helpers(server) as (client, user):
+            attempt = balance_attempt()
+            statement = balance_statement(attempt)
+            server.timeout_after = "finalize_balance_sheet"
+            with pytest.raises(SourceOutcomeUnknown):
+                await store(client, user.id, "token-a", attempt, statement)
+            context = await WorkspaceRepository(
+                client, user.id, "token-a"
+            ).get_parsed_document(attempt.workspace_id)
+            assert context.document_id == attempt.document_id
+            assert context.parsed_json.assets.total == Decimal(300)
+            assert attempt.path in server.files
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(
     "stage,expected",
     [
-        ("reserve_source_upload", "cleaned"),
+        ("reserve_source_upload_at_generation", "cleaned"),
         ("upload", "cleaned"),
         ("finalize_bank_statement", "completed"),
     ],
@@ -575,7 +681,7 @@ def test_public_upload_reads_and_two_user_isolation(api_database_client, layout,
     "fault,status,remaining",
     [
         ("finalize_bank_statement", 201, True),
-        ("reserve_source_upload", 503, False),
+        ("reserve_source_upload_at_generation", 503, False),
         ("upload", 503, False),
         ("save_failure", 503, False),
         ("cleanup_failure", 503, True),

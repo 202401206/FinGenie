@@ -1,0 +1,57 @@
+{
+  "company": "Global Synthetic Corp",
+  "reporting_date": "2026-03-31",
+  "currency": "USD",
+  "unit_scale": 1000000,
+  "assets": {
+    "current": [
+      { "canonical_field": "cash", "raw_label": "Cash and Cash Equivalents", "value": 500, "source_row": 6 },
+      { "canonical_field": "receivables", "raw_label": "Trade Receivables", "value": 300, "source_row": 7 }
+    ],
+    "non_current": [
+      { "canonical_field": "property_plant_equipment", "raw_label": "Property Plant and Equipment", "value": 1200, "source_row": 9 }
+    ],
+    "total": 2000
+  },
+  "liabilities": {
+    "current": [
+      { "canonical_field": "trade_payables", "raw_label": "Accounts Payable", "value": 400, "source_row": 12 }
+    ],
+    "non_current": [
+      { "canonical_field": "long_term_borrowings", "raw_label": "Long-term Debt", "value": 600, "source_row": 14 }
+    ],
+    "total": 1000
+  },
+  "equity": {
+    "share_capital": 800,
+    "retained_earnings": 200,
+    "total": 1000
+  },
+  "unmapped": [
+    { "source_row": 6, "raw_label": "Cash and Cash Equivalents", "raw_value": "2025-03-31: 450", "reason": "prior_period_value" },
+    { "source_row": 7, "raw_label": "Trade Receivables", "raw_value": "2025-03-31: 280", "reason": "prior_period_value" },
+    { "source_row": 9, "raw_label": "Property Plant and Equipment", "raw_value": "2025-03-31: 1100", "reason": "prior_period_value" },
+    { "source_row": 10, "raw_label": "Total Assets", "raw_value": "2025-03-31: 1830", "reason": "prior_period_value" },
+    { "source_row": 12, "raw_label": "Accounts Payable", "raw_value": "2025-03-31: 350", "reason": "prior_period_value" },
+    { "source_row": 14, "raw_label": "Long-term Debt", "raw_value": "2025-03-31: 580", "reason": "prior_period_value" },
+    { "source_row": 15, "raw_label": "Total Liabilities", "raw_value": "2025-03-31: 930", "reason": "prior_period_value" },
+    { "source_row": 17, "raw_label": "Common Stock", "raw_value": "2025-03-31: 800", "reason": "prior_period_value" },
+    { "source_row": 18, "raw_label": "Retained Earnings", "raw_value": "2025-03-31: 100", "reason": "prior_period_value" },
+    { "source_row": 19, "raw_label": "Total Equity", "raw_value": "2025-03-31: 900", "reason": "prior_period_value" }
+  ],
+  "source_metadata": {
+    "document_id": "20000000-0000-4000-8000-000000000001",
+    "sheet_name": null
+  },
+  "source_locations": {
+    "company": { "source_row": 1 },
+    "reporting_date": { "source_row": 2 },
+    "currency": { "source_row": 3 },
+    "unit_scale": { "source_row": 3 },
+    "assets.total": { "source_row": 10 },
+    "liabilities.total": { "source_row": 15 },
+    "equity.share_capital": { "source_row": 17 },
+    "equity.retained_earnings": { "source_row": 18 },
+    "equity.total": { "source_row": 19 }
+  }
+}

@@ -69,9 +69,12 @@ is handled before SourceUnavailable. There are no automatic write retries.
 The existing helper owns source removal and metadata release. The orchestration
 does not perform raw metadata deletes or separate transaction inserts.
 
-Secure retention of full pending attempt/expected parsed context across request
-termination or restart still requires the lead's operational design. There is
-no durable reconciliation queue or public retry endpoint.
+P4 persists validated context before reservation through the authenticated upload
+attempt dependency, then verifies journal completion after a save. Recovery uses
+the stored original IDs/context after restart. Unknown journal creation stops all
+later source writes; a lost completion reply preserves the saved source. Public
+attempt endpoints remain Anshuman's A4 work. See
+[durable attempt handoff](../../../docs/sprint-2-upload-attempt-handoff.md).
 
 ## Multipart and CORS
 
@@ -84,7 +87,8 @@ independent of Content-Length. Fields are limited to 64 KiB. Source bytes also
 pass the stricter 5 MiB intake check. Temporary files close on success and
 expected parser/size failures.
 
-CORS permits GET and POST only for the existing configured origins.
+CORS permits GET, POST, PATCH and DELETE for the existing configured origins;
+Settings introduced PATCH/DELETE and the Idempotency-Key header.
 The helper still accepts a custom UploadPolicy for unit tests. Increasing
 intake limits does not override independent limits in the real parser.
 
