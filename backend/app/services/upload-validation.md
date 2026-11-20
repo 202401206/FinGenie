@@ -1,4 +1,4 @@
-# Bounded bank-statement intake
+# Bounded statement intake
 
 ## Working policy, 7 November 2026
 
@@ -6,7 +6,7 @@ Anshuman authorized implementation using the proposed guide defaults. These
 are working development choices pending Shreyav/Frontend/Dhaval review. They do
 not claim a team-wide approval or a deployed Storage configuration.
 
-- Only bank statements for personal or business users.
+- Bank statements for personal or business users. Balance sheets for business users.
 - CSV uses UTF-8, optionally with a UTF-8 BOM, and comma-separated records.
 - XLSX uses ordinary unencrypted, macro-free OOXML workbooks.
 - Source bytes may be at most 5 MiB (5,242,880 bytes).
@@ -22,13 +22,11 @@ not claim a team-wide approval or a deployed Storage configuration.
   not bypass this limit. Custom policies can narrow the intake coordinate bounds;
   the parser retains its independent default ceiling.
 - XLSX archives have at most 500 members, aligned with Dhaval's parser.
-- Balance sheets are deferred and yield 422 unsupported_document_type in this
-  helper. The broader endpoint plan still lists balance sheets for later work.
 
-No specific bank layout is claimed. A structurally valid table can still be
-rejected by the bank parser. The parser owns header/layout matching, required
-financial values, date formats, formulas in required cells, sheet selection and
-ambiguous-layout rejection. This helper does not calculate or normalize money.
+A structurally valid table can still be rejected by its document parser.
+The parser checks the layout, financial values, date formats, formulas in
+required cells, and sheet selection. This helper does not calculate or normalize
+money.
 
 ## Interface
 
@@ -67,7 +65,7 @@ route should return message/code through FastAPI's detail wrapper.
 | 415 | unsupported_file_type | Unsupported extension |
 | 415 | file_type_mismatch | MIME contradicts extension |
 | 422 | invalid_upload_fields | Invalid user/document enum |
-| 422 | unsupported_document_type | Balance-sheet upload |
+| 422 | unsupported_document_type | Balance sheet submitted with personal user type |
 | 422 | invalid_filename | Missing/invalid/overlong filename |
 | 422 | empty_file | Zero source bytes |
 | 422 | invalid_file_content | Invalid encoding, table or XLSX container |

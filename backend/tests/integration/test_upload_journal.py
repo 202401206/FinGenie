@@ -308,6 +308,7 @@ def test_real_upload_service_stops_on_unknown_journal_write_and_preserves_saved_
                 ParsedDocumentRepository(client, OWNER, "token-a"),
                 None,
                 WorkspaceRepository(client, OWNER, "token-a"),
+                balance_parser=harness.parse,
                 attempts=service(client),
             )
             with pytest.raises(UploadProcessingError) as caught:

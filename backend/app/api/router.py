@@ -8,6 +8,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.upload import create_upload_router
 from app.api.routes.workspaces import router as workspaces_router
+from app.parsers.balance_sheet import parse_balance_sheet
 from app.parsers.bank_statement import parse_bank_statement
 
 api_router = APIRouter()
@@ -16,4 +17,6 @@ api_router.include_router(auth_router)
 api_router.include_router(settings_router)
 api_router.include_router(ai_router)
 api_router.include_router(workspaces_router)
-api_router.include_router(create_upload_router(parse_bank_statement))
+api_router.include_router(
+    create_upload_router(parse_bank_statement, balance_parser=parse_balance_sheet)
+)

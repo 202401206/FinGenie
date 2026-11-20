@@ -14,15 +14,18 @@ from app.db.dependencies import get_workspace_repository
 from app.db.errors import (
     DatabaseUnauthorized,
     DatabaseUnavailable,
+    DocumentNotReady,
     UnsupportedDocumentType,
     WorkspaceNotFound,
 )
 from app.db.repositories.workspaces import WorkspaceRepository
+from app.schemas.analysis_responses import WorkspaceAnalysisResponse
 from app.schemas.workspace_responses import (
     TransactionPageResponse,
     WorkspaceDetailsResponse,
     WorkspacePageResponse,
 )
+from app.services.workspace_analysis import build_workspace_analysis
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -101,3 +104,21 @@ async def list_transactions(
         ),
         media_type="application/json",
     )
+
+
+@router.get("/{id}/analysis", response_model=WorkspaceAnalysisResponse)
+async def get_workspace_analysis(id: UUID, repository: Repository) -> Response:
+    with workspace_errors():
+        try:
+            context = await repository.get_parsed_document(id)
+        except DocumentNotReady:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "document_not_ready",
+                    "message": "The document is not ready for analysis.",
+                },
+            ) from None
+
+    payload = build_workspace_analysis(context)
+    return Response(content=payload.to_wire_json(), media_type="application/json")

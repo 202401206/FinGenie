@@ -125,10 +125,6 @@ def test_overflow_stops_after_one_extra_byte_without_draining():
         ({"user_type": ""}, "invalid_upload_fields"),
         ({"document_type": "pdf"}, "invalid_upload_fields"),
         ({"document_type": "balance_sheet"}, "unsupported_document_type"),
-        (
-            {"user_type": "business", "document_type": "balance_sheet"},
-            "unsupported_document_type",
-        ),
     ],
 )
 def test_invalid_fields_are_rejected_before_reading(changes, code):
