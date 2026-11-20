@@ -1,9 +1,9 @@
-# Bank-statement upload orchestration
+# Statement upload orchestration
 
 ## Status on 8 November 2026
 
 Anshuman merged Dhaval's feature/backend-parsers branch in merge commit 4930cb1.
-The production app now mounts POST /api/upload with the real CSV/XLSX parser.
+That merge activated POST /api/upload for CSV/XLSX bank statements.
 Route tests use that production entry point and actual auth/repository/Storage
 helper code, replacing only external Supabase HTTP with synthetic responses.
 
@@ -13,23 +13,25 @@ integration handoff.
 
 ## Interface and flow
 
-The synchronous parse_bank_statement(content, *, file_kind, document_id)
-function returns Dhaval's BankStatement model and raises
-BankStatementParserError subclasses for supported parser failures. It runs in
-a worker thread. Safe HTTP errors never include parser messages or raw rows.
+The route accepts bank statements for personal and business use and balance
+sheets for business use. It selects parse_bank_statement or parse_balance_sheet
+using the validated document type. Both run in a worker thread and use the
+shared StatementParserError boundary for safe HTTP errors.
 
 UploadService uses the existing authenticated SourceUploadAccess,
 ParsedDocumentRepository, UploadRecoveryService and WorkspaceRepository:
 
 1. Authenticate before reading multipart input, then validate the file.
-2. Generate workspace/document IDs and a Bank statement YYYY-MM-DD UTC name.
+2. Generate workspace/document IDs and a dated name for the document type.
 3. Parse the exact bounded bytes with the generated document UUID.
 4. Validate the parsed result through the existing save model. Check the source
-   document ID, 10,000 transaction limit and JSON serialization of all extra
-   fields. model_dump(mode="python") preserves Decimal, dates and UUIDs.
+   document ID and JSON serialization of extra fields. For bank statements,
+   enforce the 10,000 transaction limit. Balance sheets keep reported amounts
+   and nulls in parsed JSON, including the reporting date. The bank period
+   columns stay null.
 5. Reserve metadata, upload the same original bytes, then atomically finalize.
-6. Validate the receipt IDs and transaction count, then return the public
-   workspace/document response with 201.
+6. Validate the receipt IDs and transaction count (zero for balance sheets),
+   then return the public workspace/document response with 201.
 
 The contract response includes public workspace fields plus document id/status.
 It excludes private paths, tokens and parsed financial contents.
@@ -97,9 +99,10 @@ intake limits does not override independent limits in the real parser.
 Tests cover synthetic real CSV and generated XLSX files, the production route,
 source byte/UUID preservation, exact Decimal values through the atomic-save
 HTTP boundary, user-token separation, 10,000 transactions with metadata,
-malformed dates/formulas, invalid layouts, write order and all recovery states.
-Supabase HTTP is simulated. Hosted RLS/Storage and live demonstration remain
-explicitly unverified.
+malformed dates/formulas, invalid layouts, write order and recovery. Database
+integration tests cover balance layouts A and B in CSV and XLSX, missing metadata,
+and recovery after a lost save response. They use local PostgreSQL through
+PGlite with simulated Auth and Storage HTTP. Live hosted checks remain pending.
 
 Dependency reference:
 https://pypi.org/project/python-multipart/0.0.33/

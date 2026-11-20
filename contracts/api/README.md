@@ -64,15 +64,15 @@ This endpoint does not replace Supabase's signup/login API.
 No client-provided owner ID. The browser sets the multipart boundary; callers
 using FormData must not manually set `Content-Type`.
 
-**Milestone 3 working intake policy (7 November 2026):** Anshuman authorized
-implementation of bank-statement-only CSV/XLSX validation with a 5 MiB source
-limit and 25 MiB expanded-XLSX limit, pending team review. Balance sheets receive
-422 unsupported_document_type from the helper. See the
-[working policy and exact resource caps](../../backend/app/services/upload-validation.md).
-The real upload route now uses Dhaval's CSV/XLSX parser, with 500 ZIP members and
-a 20,000 populated-record intake budget around the 10,000 transaction cap.
-See [upload orchestration](../../backend/app/services/upload.md) for recovery and
-hosted verification status. Balance-sheet uploads remain deferred.
+Bank statements are accepted for personal and business workspaces. Balance sheets
+are accepted for business workspaces in CSV or XLSX (layouts A and B). Submitting
+a personal balance sheet returns 422 `unsupported_document_type`. The response
+shape is the same for both document types. Balance amounts stay in reported units
+and the reporting date stays in parsed JSON. The bank period columns stay null.
+
+The working intake caps are 5 MiB for source files and 25 MiB for expanded XLSX.
+See [upload limits](../../backend/app/services/upload-validation.md) and
+[upload orchestration](../../backend/app/services/upload.md).
 
 Validate allowed combinations, file type/content, required columns and eventual
 size limit; then parse and validate standardized JSON. Proposed synchronous flow:
