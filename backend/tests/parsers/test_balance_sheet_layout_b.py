@@ -247,3 +247,111 @@ Total Assets,,150,130
             and u.raw_label == "Cryptocurrency Reserve"
         )
         assert prior_crypto.raw_value == "2025-03-31: 40"
+
+    def test_layout_b_duplicate_period_dates_in_alternate_spellings_rejected(
+        self,
+    ) -> None:
+        """Header with 2025-03-31 and 31/03/2025 has duplicate period identity and raises InvalidStatementError."""
+        csv_text = """Reporting Date: 2026-03-31
+Particulars,Note No,2026-03-31,2025-03-31,31/03/2025
+Current Assets,,,,
+Cash,1,100,90,90
+"""
+        with pytest.raises(
+            InvalidStatementError, match="Duplicate period column '31/03/2025'"
+        ):
+            parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+
+    def test_layout_b_ambiguous_year_and_date_overlap_rejected(self) -> None:
+        """Header with both 2025 and 2025-03-31 cannot be disambiguated and raises InvalidStatementError."""
+        csv_text = """Reporting Date: 2026-03-31
+Particulars,Note No,2026-03-31,2025-03-31,2025
+Current Assets,,,,
+Cash,1,100,90,90
+"""
+        with pytest.raises(
+            InvalidStatementError,
+            match="Ambiguous overlapping period column '2025'",
+        ):
+            parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+
+    def test_layout_b_unexpected_populated_column_header_rejected(self) -> None:
+        """Unexpected populated column in header raises InvalidStatementError."""
+        csv_text = """Reporting Date: 2026-03-31
+Particulars,Note No,2026-03-31,2025-03-31,UnknownColumn
+Current Assets,,,,,
+Cash,1,100,90,10
+"""
+        with pytest.raises(
+            InvalidStatementError,
+            match="Unexpected populated column in table header: 'UnknownColumn'",
+        ):
+            parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+
+    def test_layout_b_unexpected_populated_data_column_rejected(self) -> None:
+        """Unexpected populated cell in unassigned column in data row raises InvalidStatementError."""
+        csv_text = """Reporting Date: 2026-03-31
+Particulars,Note No,2026-03-31,2025-03-31
+Current Assets,,,
+Cash,1,100,90,ExtraValue
+"""
+        with pytest.raises(
+            InvalidStatementError,
+            match="Unexpected populated cell in unassigned column 4",
+        ):
+            parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+
+    def test_layout_b_tracked_empty_padding_columns_accepted(self) -> None:
+        """Layout B with tracked empty padding columns parses properly."""
+        csv_text = """Reporting Date: 2026-03-31
+,Particulars,,Note No,,2026-03-31,,2025-03-31,
+,Current Assets,,,,,,,
+,Cash,,1,,100,,90,
+,Total Assets,,,,100,,90,
+"""
+        bs = parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+        assert bs.reporting_date == date(2026, 3, 31)
+        assert bs.assets.current[0].value == Decimal("100")
+        assert bs.assets.total == Decimal("100")
+        prior_cash = next(u for u in bs.unmapped if u.raw_label == "Cash")
+        assert prior_cash.raw_value == "2025-03-31: 90"
+
+    def test_layout_b_current_period_blank_amount_with_prior_period_populated(
+        self,
+    ) -> None:
+        """Current period blank amount preserves canonical LineItem with None, prior amount in unmapped."""
+        csv_text = """Reporting Date: 2026-03-31
+Particulars,Note No,2026-03-31,2025-03-31
+Current Assets,,,
+Cash,1,,450
+Total Assets,,,450
+"""
+        bs = parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+        assert len(bs.assets.current) == 1
+        assert bs.assets.current[0].canonical_field == "cash"
+        assert bs.assets.current[0].value is None
+        assert bs.assets.current[0].source_row == 4
+
+        assert bs.assets.total is None
+        assert bs.source_locations["assets.total"].source_row == 5
+
+        # Prior period values
+        prior_items = [u for u in bs.unmapped if u.reason == "prior_period_value"]
+        assert len(prior_items) == 2
+        prior_cash = next(u for u in prior_items if u.raw_label == "Cash")
+        assert prior_cash.raw_value == "2025-03-31: 450"
+
+    def test_layout_b_note_column_not_treated_as_money(self) -> None:
+        """Values in Note column (e.g. Note 1, 2) are not parsed as financial amounts."""
+        csv_text = """Reporting Date: 2026-03-31
+Particulars,Note No,2026-03-31,2025-03-31
+Current Assets,,,
+Cash,Note 1,500,450
+Total Assets,,500,450
+"""
+        bs = parse_balance_sheet_csv(csv_text.encode("utf-8"), document_id=TEST_DOC_ID)
+        assert bs.assets.current[0].value == Decimal("500")
+        assert bs.assets.total == Decimal("500")
+        # Ensure 'Note 1' was not parsed or added as an amount
+        amounts = [bs.assets.current[0].value, bs.assets.total]
+        assert Decimal("1") not in amounts

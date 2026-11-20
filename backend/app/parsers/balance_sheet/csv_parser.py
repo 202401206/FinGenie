@@ -26,6 +26,7 @@ from app.schemas.balance_sheet import (
 MAX_SOURCE_BYTES = 5 * 1024 * 1024  # 5 MiB
 MAX_ROWS = 20_000
 MAX_COLUMNS = 50
+MAX_CELL_CHARS = 131_072  # 128 KiB per CSV cell
 
 # Supported currencies and scales
 SUPPORTED_CURRENCIES = {"INR", "USD"}
@@ -61,6 +62,8 @@ CANONICAL_LINE_ITEMS: dict[str, dict[str, list[str]]] = {
             "cash & bank",
             "bank balances",
             "cash and bank balances",
+            "cash on hand",
+            "cash at bank",
         ],
         "receivables": [
             "trade receivables",
@@ -209,6 +212,8 @@ SECTION_HEADINGS = {
         "non current liabilities",
         "long-term liabilities",
         "long term liabilities",
+        "long-term borrowings",
+        "long term borrowings",
         "ii. non-current liabilities",
     ],
     "liabilities_root": [
@@ -241,9 +246,7 @@ def _parse_decimal(raw: str, *, source_row: int, field_name: str) -> Decimal:
 
     # Reject formulas
     if cleaned.startswith("="):
-        raise InvalidStatementError(
-            f"Formula found in cell at row {source_row}: '{raw}'"
-        )
+        raise InvalidStatementError(f"Formula found in cell at row {source_row}")
 
     # Remove commas
     cleaned = cleaned.replace(",", "")
@@ -256,12 +259,12 @@ def _parse_decimal(raw: str, *, source_row: int, field_name: str) -> Decimal:
         amount = Decimal(cleaned)
     except InvalidOperation as exc:
         raise InvalidStatementError(
-            f"Invalid numeric value '{raw}' for {field_name} at row {source_row}"
+            f"Invalid numeric value for {field_name} at row {source_row}"
         ) from exc
 
     if not amount.is_finite():
         raise InvalidStatementError(
-            f"Non-finite numeric value '{raw}' for {field_name} at row {source_row}"
+            f"Non-finite numeric value for {field_name} at row {source_row}"
         )
 
     return amount
@@ -282,30 +285,43 @@ def _parse_date(raw: str, *, source_row: int) -> date:
             continue
 
     raise InvalidStatementError(
-        f"Invalid reporting date format '{raw}' at row {source_row}; expected YYYY-MM-DD or DD/MM/YYYY"
+        f"Invalid reporting date format at row {source_row}; expected YYYY-MM-DD or DD/MM/YYYY"
     )
 
 
-def _try_parse_header_date(cell: str) -> date | None:
-    """Attempt to parse date or 4-digit year from a column header cell."""
+def _try_parse_header_period(cell: str) -> tuple[str, date | int] | None:
+    """Attempt to parse date (ISO/delimited) or 4-digit year from a header cell."""
     cleaned = _clean_str(cell)
     if not cleaned:
         return None
 
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"):
         try:
-            return datetime.strptime(cleaned, fmt).date()
+            return ("date", datetime.strptime(cleaned, fmt).date())
         except ValueError:
             continue
 
-    # 4-digit year alone: e.g. "2026"
     if re.fullmatch(r"\d{4}", cleaned):
         try:
-            year = int(cleaned)
-            return date(year, 1, 1)
+            return ("year", int(cleaned))
         except ValueError:
             pass
 
+    return None
+
+
+def _try_parse_header_date(cell: str) -> date | None:
+    """Attempt to parse date or 4-digit year from a column header cell."""
+    res = _try_parse_header_period(cell)
+    if res is None:
+        return None
+    kind, val = res
+    if kind == "date":
+        assert isinstance(val, date)
+        return val
+    elif kind == "year":
+        assert isinstance(val, int)
+        return date(val, 1, 1)
     return None
 
 
@@ -338,15 +354,13 @@ def _extract_key_values(
     return kv_list
 
 
-def _match_layout_a_header(row: list[str]) -> bool:
-    """Check if row matches Layout A table header (Particulars, Amount)."""
-    clean_cells = [_clean_str(c).lower() for c in row if _clean_str(c)]
-    if len(clean_cells) != 2:
-        return False
+def _match_layout_a_header(row: list[str]) -> dict[str, int] | None:
+    """Check if row matches Layout A table header (Particulars, Amount).
 
-    col0 = clean_cells[0]
-    col1 = clean_cells[1]
-
+    Returns a dict with 'particulars_col' and 'amount_col' (0-based indices)
+    if the row matches Layout A, or None if it is not a Layout A header.
+    Raises InvalidStatementError if header contains conflicting or unexpected columns.
+    """
     particulars_aliases = {
         "particulars",
         "description",
@@ -361,7 +375,39 @@ def _match_layout_a_header(row: list[str]) -> bool:
         "total",
     }
 
-    return col0 in particulars_aliases and col1 in amount_aliases
+    clean_cells = [_clean_str(c) for c in row]
+    particulars_cols: list[int] = []
+    amount_cols: list[int] = []
+    unexpected_cols: list[tuple[int, str]] = []
+
+    for idx, c in enumerate(clean_cells):
+        if not c:
+            continue
+        c_lower = c.lower()
+        if c_lower in particulars_aliases:
+            particulars_cols.append(idx)
+        elif c_lower in amount_aliases:
+            amount_cols.append(idx)
+        else:
+            unexpected_cols.append((idx, c))
+
+    if not particulars_cols or not amount_cols:
+        return None
+
+    if len(particulars_cols) > 1:
+        raise InvalidStatementError("Duplicate particulars column in table header")
+    if len(amount_cols) > 1:
+        raise InvalidStatementError("Duplicate amount column in table header")
+    if unexpected_cols:
+        first_extra = unexpected_cols[0][1]
+        raise InvalidStatementError(
+            f"Unexpected populated column in table header: '{first_extra}'"
+        )
+
+    return {
+        "particulars_col": particulars_cols[0],
+        "amount_col": amount_cols[0],
+    }
 
 
 def _match_layout_b_header(row: list[str]) -> dict[str, Any] | None:
@@ -380,23 +426,23 @@ def _match_layout_b_header(row: list[str]) -> dict[str, Any] | None:
         "account",
     }
 
-    # Find particulars column
-    particulars_col = None
-    for idx, c in enumerate(norm_cells):
-        if c in particulars_aliases:
-            particulars_col = idx
-            break
-
-    if particulars_col is None:
+    particulars_cols = [
+        idx for idx, c in enumerate(norm_cells) if c in particulars_aliases
+    ]
+    if len(particulars_cols) == 0:
         return None
+    if len(particulars_cols) > 1:
+        raise InvalidStatementError("Duplicate particulars column in table header")
+    particulars_col = particulars_cols[0]
 
     # Optional Note column
     note_aliases = {"note no", "note no.", "note", "notes", "schedule", "ref"}
     note_col = None
 
-    # Check remaining columns for dates
     parsed_dates: list[tuple[date, int, str]] = []
-    seen_headers: set[str] = set()
+    seen_dates: dict[date, str] = {}
+    seen_years: dict[int, str] = {}
+    unexpected_cols: list[tuple[int, str]] = []
 
     for idx in range(particulars_col + 1, len(clean_cells)):
         cell_raw = clean_cells[idx]
@@ -404,24 +450,58 @@ def _match_layout_b_header(row: list[str]) -> dict[str, Any] | None:
         if not cell_raw:
             continue
 
-        if cell_lower in note_aliases and note_col is None:
+        if cell_lower in note_aliases:
+            if note_col is not None:
+                raise InvalidStatementError("Duplicate note column in table header")
             note_col = idx
             continue
 
-        parsed_d = _try_parse_header_date(cell_raw)
-        if parsed_d is not None:
-            # Check for duplicate headers
-            h_norm = cell_raw.strip().lower()
-            if h_norm in seen_headers:
-                raise InvalidStatementError(
-                    f"Duplicate period column '{cell_raw}' in table header"
-                )
-            seen_headers.add(h_norm)
-            parsed_dates.append((parsed_d, idx, cell_raw))
+        period_info = _try_parse_header_period(cell_raw)
+        if period_info is not None:
+            kind, period_val = period_info
+            if kind == "date":
+                d = period_val
+                assert isinstance(d, date)
+                if d in seen_dates:
+                    raise InvalidStatementError(
+                        f"Duplicate period column '{cell_raw}' in table header"
+                    )
+                if d.year in seen_years:
+                    raise InvalidStatementError(
+                        f"Ambiguous overlapping period column '{cell_raw}' in table header"
+                    )
+                seen_dates[d] = cell_raw
+                parsed_dates.append((d, idx, cell_raw))
+            elif kind == "year":
+                y = period_val
+                assert isinstance(y, int)
+                if y in seen_years:
+                    raise InvalidStatementError(
+                        f"Duplicate period column '{cell_raw}' in table header"
+                    )
+                if any(d.year == y for d in seen_dates):
+                    raise InvalidStatementError(
+                        f"Ambiguous overlapping period column '{cell_raw}' in table header"
+                    )
+                seen_years[y] = cell_raw
+                parsed_dates.append((date(y, 1, 1), idx, cell_raw))
+            continue
 
-    # Layout B requires at least 2 dated period columns
+        unexpected_cols.append((idx, cell_raw))
+
     if len(parsed_dates) < 2:
         return None
+
+    # Check for any unexpected non-empty columns before particulars_col
+    for idx in range(0, particulars_col):
+        if clean_cells[idx]:
+            unexpected_cols.append((idx, clean_cells[idx]))
+
+    if unexpected_cols:
+        first_extra = unexpected_cols[0][1]
+        raise InvalidStatementError(
+            f"Unexpected populated column in table header: '{first_extra}'"
+        )
 
     return {
         "particulars_col": particulars_col,
@@ -430,12 +510,484 @@ def _match_layout_b_header(row: list[str]) -> dict[str, Any] | None:
     }
 
 
+class MetadataAccumulator:
+    """Accumulates and resolves balance sheet preamble metadata according to agreed layout contracts."""
+
+    def __init__(self) -> None:
+        self.company: str | None = None
+        self.company_row: int | None = None
+        self.reporting_date: date | None = None
+        self.reporting_date_row: int | None = None
+        self.currencies: list[tuple[str, str, int]] = []
+        self.scales: list[tuple[str, str, int]] = []
+        self.other_preamble: list[tuple[str, str, int]] = []
+
+    def record_company(self, v: str, row_idx: int) -> None:
+        v_clean = v.strip()
+        if not v_clean:
+            return
+        if self.company is None:
+            self.company = v_clean
+            self.company_row = row_idx
+        elif self.company != v_clean:
+            raise InvalidStatementError(
+                f"Contradictory company declarations in preamble ('{self.company}' vs '{v_clean}') at row {row_idx}"
+            )
+
+    def record_reporting_date(self, v: str, row_idx: int) -> None:
+        v_clean = v.strip()
+        if not v_clean:
+            return
+        parsed_d = _parse_date(v_clean, source_row=row_idx)
+        if self.reporting_date is None:
+            self.reporting_date = parsed_d
+            self.reporting_date_row = row_idx
+        elif self.reporting_date != parsed_d:
+            raise InvalidStatementError(
+                f"Contradictory reporting date declarations in preamble ('{self.reporting_date}' vs '{parsed_d}') at row {row_idx}"
+            )
+
+    def record_currency(self, k: str, v: str, row_idx: int) -> None:
+        self.currencies.append((k, v, row_idx))
+
+    def record_unit_scale(self, k: str, v: str, row_idx: int) -> None:
+        self.scales.append((k, v, row_idx))
+
+    def record_note(self, k: str, v: str, row_idx: int) -> None:
+        self.other_preamble.append((k, v, row_idx))
+
+    def resolve(
+        self,
+    ) -> tuple[
+        str | None,
+        date | None,
+        str | None,
+        int | None,
+        dict[str, SourceLocation],
+        list[UnmappedItem],
+    ]:
+        source_locations: dict[str, SourceLocation] = {}
+        unmapped: list[UnmappedItem] = []
+
+        if self.company is not None and self.company_row is not None:
+            source_locations["company"] = SourceLocation(source_row=self.company_row)
+
+        if self.reporting_date is not None and self.reporting_date_row is not None:
+            source_locations["reporting_date"] = SourceLocation(
+                source_row=self.reporting_date_row
+            )
+
+        # Resolve currencies
+        resolved_curr: str | None = None
+        curr_row: int | None = None
+        has_ambiguous_curr = False
+
+        for k, v, r in self.currencies:
+            norm = v.strip().upper()
+            if norm in ("INR", "INDIAN RUPEES", "₹"):
+                code = "INR"
+            elif norm in ("USD", "US DOLLARS"):
+                code = "USD"
+            elif norm in ("RS.", "RS", "$"):
+                code = "AMBIGUOUS"
+                has_ambiguous_curr = True
+                unmapped.append(
+                    UnmappedItem(
+                        source_row=r,
+                        raw_label=k,
+                        raw_value=v,
+                        reason="ambiguous_currency",
+                    )
+                )
+                continue
+            else:
+                raise InvalidStatementError(
+                    f"Unsupported balance sheet currency '{v}' at row {r}"
+                )
+
+            if resolved_curr is None:
+                resolved_curr = code
+                curr_row = r
+            elif resolved_curr != code:
+                raise InvalidStatementError(
+                    f"Contradictory currency declarations in preamble ('{resolved_curr}' vs '{code}') at row {r}"
+                )
+
+        if has_ambiguous_curr:
+            final_currency = None
+        else:
+            final_currency = resolved_curr
+            if final_currency is not None and curr_row is not None:
+                source_locations["currency"] = SourceLocation(source_row=curr_row)
+
+        # Resolve unit scale
+        resolved_scale: int | None = None
+        scale_row: int | None = None
+        has_ambiguous_scale = False
+
+        for k, v, r in self.scales:
+            scale_key = v.strip().lower()
+            if scale_key in SCALE_MAPPINGS:
+                multiplier = SCALE_MAPPINGS[scale_key]
+                if resolved_scale is None:
+                    resolved_scale = multiplier
+                    scale_row = r
+                elif resolved_scale != multiplier:
+                    raise InvalidStatementError(
+                        f"Contradictory unit scale declarations in preamble ({resolved_scale} vs {multiplier}) at row {r}"
+                    )
+            else:
+                has_ambiguous_scale = True
+                unmapped.append(
+                    UnmappedItem(
+                        source_row=r,
+                        raw_label=k,
+                        raw_value=v,
+                        reason="ambiguous_unit_scale",
+                    )
+                )
+
+        if has_ambiguous_scale:
+            final_scale = None
+        else:
+            final_scale = resolved_scale
+            if final_scale is not None and scale_row is not None:
+                source_locations["unit_scale"] = SourceLocation(source_row=scale_row)
+
+        for k, v, r in self.other_preamble:
+            unmapped.append(
+                UnmappedItem(
+                    source_row=r,
+                    raw_label=k,
+                    raw_value=v,
+                    reason="unrecognized_note",
+                )
+            )
+
+        return (
+            self.company,
+            self.reporting_date,
+            final_currency,
+            final_scale,
+            source_locations,
+            unmapped,
+        )
+
+
+class ScalarTracker:
+    """Tracks scalar total and equity fields, validating against duplicate conflicts."""
+
+    def __init__(
+        self,
+        source_locations: dict[str, SourceLocation],
+        unmapped: list[UnmappedItem],
+    ) -> None:
+        self.seen: dict[str, tuple[Decimal | None, int, str]] = {}
+        self.source_locations = source_locations
+        self.unmapped = unmapped
+
+    def record_scalar(
+        self,
+        key: str,
+        value: Decimal | None,
+        source_row: int,
+        raw_label: str,
+        raw_value_str: str,
+    ) -> Decimal | None:
+        if key not in self.seen:
+            self.seen[key] = (value, source_row, raw_label)
+            self.source_locations[key] = SourceLocation(source_row=source_row)
+            return value
+
+        prev_val, prev_row, prev_label = self.seen[key]
+        if prev_val != value:
+            raise InvalidStatementError(
+                f"Conflicting value for duplicate scalar field '{key}' at row {source_row}"
+            )
+
+        # Same normalized value: accept deterministically, preserve repeated source row in unmapped
+        self.unmapped.append(
+            UnmappedItem(
+                source_row=source_row,
+                raw_label=raw_label,
+                raw_value=raw_value_str,
+                reason="repeated_reported_value",
+            )
+        )
+        return prev_val
+
+
+class TableStateMachine:
+    """Processes table body rows into line items, totals, and unmapped entries."""
+
+    def __init__(
+        self,
+        scalar_tracker: ScalarTracker,
+        unmapped: list[UnmappedItem],
+        source_locations: dict[str, SourceLocation],
+    ) -> None:
+        self.scalar_tracker = scalar_tracker
+        self.unmapped = unmapped
+        self.source_locations = source_locations
+
+        self.current_section: str = "assets"
+        self.current_subsection: str | None = None
+
+        self.assets_current: list[LineItem] = []
+        self.assets_non_current: list[LineItem] = []
+        self.liabilities_current: list[LineItem] = []
+        self.liabilities_non_current: list[LineItem] = []
+
+        self.assets_total: Decimal | None = None
+        self.liabilities_total: Decimal | None = None
+        self.equity_total: Decimal | None = None
+        self.share_capital: Decimal | None = None
+        self.retained_earnings: Decimal | None = None
+
+    def process_row(
+        self,
+        *,
+        raw_label: str,
+        value: Decimal | None,
+        is_amount_blank: bool,
+        raw_amount_str: str,
+        prior_values: list[tuple[str, str | Decimal]],
+        row_idx: int,
+    ) -> None:
+        norm_label = raw_label.lower()
+
+        # 1. Section Headings (only when current amount is blank and no prior values)
+        if is_amount_blank and not prior_values:
+            matched_heading = False
+            for sec_key, aliases in SECTION_HEADINGS.items():
+                if norm_label in aliases:
+                    matched_heading = True
+                    if sec_key == "assets_root":
+                        self.current_section = "assets"
+                        self.current_subsection = None
+                    elif sec_key == "assets_current":
+                        self.current_section = "assets"
+                        self.current_subsection = "current"
+                    elif sec_key == "assets_non_current":
+                        self.current_section = "assets"
+                        self.current_subsection = "non_current"
+                    elif sec_key == "liabilities_root":
+                        self.current_section = "liabilities"
+                        self.current_subsection = None
+                    elif sec_key == "liabilities_current":
+                        self.current_section = "liabilities"
+                        self.current_subsection = "current"
+                    elif sec_key == "liabilities_non_current":
+                        self.current_section = "liabilities"
+                        self.current_subsection = "non_current"
+                    elif sec_key == "equity_root":
+                        self.current_section = "equity"
+                        self.current_subsection = None
+                    break
+
+            if matched_heading:
+                return
+
+        # 2. Prior period values into unmapped (Layout B)
+        for raw_h, p_val in prior_values:
+            p_val_str = str(p_val).replace(",", "")
+            self.unmapped.append(
+                UnmappedItem(
+                    source_row=row_idx,
+                    raw_label=raw_label,
+                    raw_value=f"{raw_h}: {p_val_str}",
+                    reason="prior_period_value",
+                )
+            )
+
+        # 3. Check for reported totals
+        if norm_label in REPORTED_TOTAL_LABELS["assets.total"]:
+            self.assets_total = self.scalar_tracker.record_scalar(
+                "assets.total", value, row_idx, raw_label, raw_amount_str
+            )
+            return
+        elif norm_label in REPORTED_TOTAL_LABELS["liabilities.total"]:
+            self.liabilities_total = self.scalar_tracker.record_scalar(
+                "liabilities.total", value, row_idx, raw_label, raw_amount_str
+            )
+            return
+        elif norm_label in REPORTED_TOTAL_LABELS["equity.total"]:
+            self.equity_total = self.scalar_tracker.record_scalar(
+                "equity.total", value, row_idx, raw_label, raw_amount_str
+            )
+            return
+
+        # 4. Check for reported intermediate subtotals
+        if norm_label in REPORTED_SUBTOTAL_LABELS:
+            self.unmapped.append(
+                UnmappedItem(
+                    source_row=row_idx,
+                    raw_label=raw_label,
+                    raw_value=raw_amount_str,
+                    reason="reported_subtotal",
+                )
+            )
+            return
+
+        # 5. Equity section items or labels matching equity canonical items
+        if self.current_section == "equity" or any(
+            norm_label in aliases for aliases in EQUITY_LINE_ITEMS.values()
+        ):
+            if any(norm_label == alias for alias in EQUITY_LINE_ITEMS["share_capital"]):
+                self.share_capital = self.scalar_tracker.record_scalar(
+                    "equity.share_capital", value, row_idx, raw_label, raw_amount_str
+                )
+            elif any(
+                norm_label == alias for alias in EQUITY_LINE_ITEMS["retained_earnings"]
+            ):
+                self.retained_earnings = self.scalar_tracker.record_scalar(
+                    "equity.retained_earnings",
+                    value,
+                    row_idx,
+                    raw_label,
+                    raw_amount_str,
+                )
+            else:
+                if value is not None:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value=raw_amount_str,
+                            reason="unrecognized_financial_item",
+                        )
+                    )
+                elif is_amount_blank and not prior_values:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value="",
+                            reason="unrecognized_note",
+                        )
+                    )
+            return
+
+        # 6. Assets section
+        if self.current_section == "assets":
+            canonical = None
+            for can_field, aliases in CANONICAL_LINE_ITEMS["assets"].items():
+                if norm_label in aliases:
+                    canonical = can_field
+                    break
+
+            if canonical is not None:
+                if self.current_subsection == "current":
+                    self.assets_current.append(
+                        LineItem(
+                            canonical_field=canonical,
+                            raw_label=raw_label,
+                            value=value,
+                            source_row=row_idx,
+                        )
+                    )
+                elif self.current_subsection == "non_current":
+                    self.assets_non_current.append(
+                        LineItem(
+                            canonical_field=canonical,
+                            raw_label=raw_label,
+                            value=value,
+                            source_row=row_idx,
+                        )
+                    )
+                else:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value=raw_amount_str,
+                            reason="ambiguous_section",
+                        )
+                    )
+            else:
+                if value is not None:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value=raw_amount_str,
+                            reason="unrecognized_financial_item",
+                        )
+                    )
+                elif is_amount_blank and not prior_values:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value="",
+                            reason="unrecognized_note",
+                        )
+                    )
+            return
+
+        # 7. Liabilities section
+        if self.current_section == "liabilities":
+            canonical = None
+            for can_field, aliases in CANONICAL_LINE_ITEMS["liabilities"].items():
+                if norm_label in aliases:
+                    canonical = can_field
+                    break
+
+            if canonical is not None:
+                if self.current_subsection == "current":
+                    self.liabilities_current.append(
+                        LineItem(
+                            canonical_field=canonical,
+                            raw_label=raw_label,
+                            value=value,
+                            source_row=row_idx,
+                        )
+                    )
+                elif self.current_subsection == "non_current":
+                    self.liabilities_non_current.append(
+                        LineItem(
+                            canonical_field=canonical,
+                            raw_label=raw_label,
+                            value=value,
+                            source_row=row_idx,
+                        )
+                    )
+                else:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value=raw_amount_str,
+                            reason="ambiguous_section",
+                        )
+                    )
+            else:
+                if value is not None:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value=raw_amount_str,
+                            reason="unrecognized_financial_item",
+                        )
+                    )
+                elif is_amount_blank and not prior_values:
+                    self.unmapped.append(
+                        UnmappedItem(
+                            source_row=row_idx,
+                            raw_label=raw_label,
+                            raw_value="",
+                            reason="unrecognized_note",
+                        )
+                    )
+            return
+
+
 def parse_balance_sheet_csv(content: bytes, *, document_id: UUID) -> BalanceSheet:
     """Parse Layout A or Layout B balance sheet CSV into a validated BalanceSheet model."""
     if len(content) > MAX_SOURCE_BYTES:
         raise ResourceLimitError(f"File size {len(content)} bytes exceeds 5 MiB limit")
 
-    # Empty content check
     if not content.strip():
         raise InvalidStatementError("CSV file content is empty")
 
@@ -446,431 +998,259 @@ def parse_balance_sheet_csv(content: bytes, *, document_id: UUID) -> BalanceShee
             "File must be valid UTF-8 or UTF-8 with BOM"
         ) from exc
 
-    reader = csv.reader(io.StringIO(decoded))
+    metadata_accumulator = MetadataAccumulator()
+    layout_kind: str | None = None
+    header_found = False
 
-    # Preamble metadata accumulators
+    assigned_cols: set[int] = set()
+    particulars_col_idx: int = 0
+    current_col_idx: int = 1
+    prior_cols: list[tuple[date, int, str]] = []
+
     company: str | None = None
     reporting_date: date | None = None
     currency: str | None = None
     unit_scale: int | None = None
-
     source_locations: dict[str, SourceLocation] = {}
     unmapped: list[UnmappedItem] = []
 
-    # Layout tracking: "A" or "B"
-    layout_kind: str | None = None
-    header_found = False
+    scalar_tracker: ScalarTracker | None = None
+    state_machine: TableStateMachine | None = None
 
-    # Layout B specific column routing
-    current_col_idx: int = 1
-    prior_cols: list[tuple[date, int, str]] = []
-    particulars_col_idx: int = 0
+    reader = csv.reader(io.StringIO(decoded), strict=True)
+    current_line = 0
 
-    # Sections
-    current_section: str = "assets"  # "assets", "liabilities", "equity"
-    current_subsection: str = "current"  # "current", "non_current"
+    try:
+        for row in reader:
+            current_line = reader.line_num
+            row_idx = current_line
 
-    # Line item lists
-    assets_current: list[LineItem] = []
-    assets_non_current: list[LineItem] = []
-    liabilities_current: list[LineItem] = []
-    liabilities_non_current: list[LineItem] = []
-
-    # Totals
-    assets_total: Decimal | None = None
-    liabilities_total: Decimal | None = None
-    equity_total: Decimal | None = None
-
-    # Equity items
-    share_capital: Decimal | None = None
-    retained_earnings: Decimal | None = None
-
-    rows = list(reader)
-    if len(rows) > MAX_ROWS:
-        raise ResourceLimitError(
-            f"CSV row count {len(rows)} exceeds {MAX_ROWS} row limit"
-        )
-
-    for row_idx, row in enumerate(rows, start=1):
-        if len(row) > MAX_COLUMNS:
-            raise ResourceLimitError(
-                f"Row {row_idx} column count {len(row)} exceeds {MAX_COLUMNS} limit"
-            )
-
-        # Skip completely empty rows
-        if not any(c.strip() for c in row):
-            continue
-
-        # Check for formulas in any cell
-        for cell in row:
-            if cell.strip().startswith("="):
-                raise InvalidStatementError(
-                    f"Formula found in cell at row {row_idx}: '{cell.strip()}'"
+            if row_idx > MAX_ROWS:
+                raise ResourceLimitError(f"CSV row count exceeds {MAX_ROWS} row limit")
+            if len(row) > MAX_COLUMNS:
+                raise ResourceLimitError(
+                    f"Row {row_idx} column count {len(row)} exceeds {MAX_COLUMNS} limit"
                 )
 
-        # Before header: parse preamble metadata
-        if not header_found:
-            # Check Layout A table header
-            if _match_layout_a_header(row):
-                header_found = True
-                layout_kind = "A"
-                particulars_col_idx = 0
-                current_col_idx = 1
-                continue
-
-            # Check Layout B table header
-            layout_b_match = _match_layout_b_header(row)
-            if layout_b_match is not None:
-                header_found = True
-                layout_kind = "B"
-                particulars_col_idx = layout_b_match["particulars_col"]
-                dated_cols = layout_b_match["dated_cols"]
-
-                # Ensure reporting date was declared in preamble before header
-                if reporting_date is None:
+            # Check cell length & formulas
+            for cell in row:
+                if len(cell) > MAX_CELL_CHARS:
+                    raise ResourceLimitError(
+                        f"CSV cell length exceeds limit of {MAX_CELL_CHARS} at row {row_idx}"
+                    )
+                if cell.strip().startswith("="):
                     raise InvalidStatementError(
-                        "Missing required reporting date in statement preamble before table header"
+                        f"Formula found in cell at row {row_idx}"
                     )
 
-                # Match declared reporting date against dated columns
-                matches = []
-                for d, col_idx, raw_h in dated_cols:
-                    if d == reporting_date:
-                        matches.append((d, col_idx, raw_h))
-                    elif (
-                        re.fullmatch(r"\d{4}", raw_h.strip())
-                        and int(raw_h.strip()) == reporting_date.year
+            # Skip completely empty rows
+            if not any(c.strip() for c in row):
+                continue
+
+            # Before table header is found:
+            if not header_found:
+                # Check Layout A
+                layout_a = _match_layout_a_header(row)
+                if layout_a is not None:
+                    header_found = True
+                    layout_kind = "A"
+                    particulars_col_idx = layout_a["particulars_col"]
+                    current_col_idx = layout_a["amount_col"]
+                    assigned_cols = {particulars_col_idx, current_col_idx}
+
+                    (
+                        company,
+                        reporting_date,
+                        currency,
+                        unit_scale,
+                        source_locations,
+                        unmapped,
+                    ) = metadata_accumulator.resolve()
+
+                    scalar_tracker = ScalarTracker(source_locations, unmapped)
+                    state_machine = TableStateMachine(
+                        scalar_tracker, unmapped, source_locations
+                    )
+                    continue
+
+                # Check Layout B
+                layout_b = _match_layout_b_header(row)
+                if layout_b is not None:
+                    header_found = True
+                    layout_kind = "B"
+                    particulars_col_idx = layout_b["particulars_col"]
+                    note_col = layout_b["note_col"]
+                    dated_cols = layout_b["dated_cols"]
+
+                    (
+                        company,
+                        reporting_date,
+                        currency,
+                        unit_scale,
+                        source_locations,
+                        unmapped,
+                    ) = metadata_accumulator.resolve()
+
+                    if reporting_date is None:
+                        raise InvalidStatementError(
+                            "Missing required reporting date in statement preamble before table header"
+                        )
+
+                    # Match declared reporting date against dated columns
+                    matches = []
+                    for d, col_idx, raw_h in dated_cols:
+                        if d == reporting_date:
+                            matches.append((d, col_idx, raw_h))
+                        elif (
+                            re.fullmatch(r"\d{4}", raw_h.strip())
+                            and int(raw_h.strip()) == reporting_date.year
+                        ):
+                            matches.append((d, col_idx, raw_h))
+
+                    if len(matches) == 0:
+                        available = [raw_h for _, _, raw_h in dated_cols]
+                        raise InvalidStatementError(
+                            f"Declared reporting date '{reporting_date}' not found among statement columns: {available}"
+                        )
+                    if len(matches) > 1:
+                        raise InvalidStatementError(
+                            f"Duplicate period columns matching reporting date '{reporting_date}' in table header"
+                        )
+
+                    current_col_idx = matches[0][1]
+                    prior_cols = [
+                        (d, idx, raw_h)
+                        for d, idx, raw_h in dated_cols
+                        if idx != current_col_idx
+                    ]
+
+                    assigned_cols = {particulars_col_idx, current_col_idx}
+                    if note_col is not None:
+                        assigned_cols.add(note_col)
+                    for _, p_idx, _ in prior_cols:
+                        assigned_cols.add(p_idx)
+
+                    scalar_tracker = ScalarTracker(source_locations, unmapped)
+                    state_machine = TableStateMachine(
+                        scalar_tracker, unmapped, source_locations
+                    )
+                    continue
+
+                # Preamble metadata rows
+                kvs = _extract_key_values(row)
+                handled_any = False
+                for k, v, _ in kvs:
+                    if any(
+                        alias in k
+                        for alias in (
+                            "company",
+                            "entity",
+                            "organization",
+                            "name of company",
+                        )
                     ):
-                        matches.append((d, col_idx, raw_h))
+                        metadata_accumulator.record_company(v, row_idx)
+                        handled_any = True
+                    elif any(
+                        alias in k
+                        for alias in (
+                            "reporting date",
+                            "as at",
+                            "as on",
+                            "balance sheet as of",
+                            "period ended",
+                            "date",
+                        )
+                    ):
+                        metadata_accumulator.record_reporting_date(v, row_idx)
+                        handled_any = True
+                    elif any(
+                        alias in k
+                        for alias in ("currency", "reporting currency", "curr")
+                    ):
+                        metadata_accumulator.record_currency(k, v, row_idx)
+                        handled_any = True
+                    elif any(
+                        alias in k
+                        for alias in (
+                            "amounts in",
+                            "scale",
+                            "units in",
+                            "in",
+                            "figures in",
+                        )
+                    ):
+                        metadata_accumulator.record_unit_scale(k, v, row_idx)
+                        handled_any = True
+                    else:
+                        metadata_accumulator.record_note(k, v, row_idx)
+                        handled_any = True
 
-                if len(matches) == 0:
-                    available = [raw_h for _, _, raw_h in dated_cols]
-                    raise InvalidStatementError(
-                        f"Declared reporting date '{reporting_date}' not found among statement columns: {available}"
-                    )
-                if len(matches) > 1:
-                    raise InvalidStatementError(
-                        f"Duplicate period columns matching reporting date '{reporting_date}' in table header"
-                    )
-
-                current_col_idx = matches[0][1]
-                prior_cols = [
-                    (d, idx, raw_h)
-                    for d, idx, raw_h in dated_cols
-                    if idx != current_col_idx
-                ]
+                if not handled_any and any(c.strip() for c in row):
+                    cell_text = " | ".join(c.strip() for c in row if c.strip())
+                    metadata_accumulator.record_note(row[0].strip(), cell_text, row_idx)
                 continue
 
-            # Extract key: value pairs from preamble row
-            kvs = _extract_key_values(row)
-            handled_any = False
-            for k, v, _ in kvs:
-                # Company
-                if any(
-                    comp_alias in k
-                    for comp_alias in (
-                        "company",
-                        "entity",
-                        "organization",
-                        "name of company",
+            # After header found:
+            assert state_machine is not None
+
+            # Table shape validation: reject any populated cell in unassigned columns
+            for col_idx, cell in enumerate(row):
+                if col_idx not in assigned_cols and cell.strip():
+                    raise InvalidStatementError(
+                        f"Unexpected populated cell in unassigned column {col_idx} at row {row_idx}"
                     )
-                ):
-                    if company is None and v:
-                        company = v
-                        source_locations["company"] = SourceLocation(source_row=row_idx)
-                        handled_any = True
 
-                # Reporting Date
-                elif any(
-                    date_alias in k
-                    for date_alias in (
-                        "reporting date",
-                        "as at",
-                        "as on",
-                        "balance sheet as of",
-                        "period ended",
-                        "date",
-                    )
-                ):
-                    if reporting_date is None and v:
-                        reporting_date = _parse_date(v, source_row=row_idx)
-                        source_locations["reporting_date"] = SourceLocation(
-                            source_row=row_idx
-                        )
-                        handled_any = True
-
-                # Currency
-                elif any(
-                    curr_alias in k
-                    for curr_alias in ("currency", "reporting currency", "curr")
-                ):
-                    norm_curr = v.strip().upper()
-                    if norm_curr in ("INR", "INDIAN RUPEES", "₹"):
-                        currency = "INR"
-                        source_locations["currency"] = SourceLocation(
-                            source_row=row_idx
-                        )
-                    elif norm_curr in ("USD", "US DOLLARS"):
-                        currency = "USD"
-                        source_locations["currency"] = SourceLocation(
-                            source_row=row_idx
-                        )
-                    elif norm_curr in ("RS.", "RS", "$"):
-                        # Ambiguous currency
-                        unmapped.append(
-                            UnmappedItem(
-                                source_row=row_idx,
-                                raw_label=k,
-                                raw_value=v,
-                                reason="ambiguous_currency",
-                            )
-                        )
-                    else:
-                        raise InvalidStatementError(
-                            f"Unsupported balance sheet currency '{v}' at row {row_idx}"
-                        )
-                    handled_any = True
-
-                # Unit Scale
-                elif any(
-                    scale_alias in k
-                    for scale_alias in (
-                        "amounts in",
-                        "scale",
-                        "units in",
-                        "in",
-                        "figures in",
-                    )
-                ):
-                    scale_key = v.strip().lower()
-                    if scale_key in SCALE_MAPPINGS:
-                        unit_scale = SCALE_MAPPINGS[scale_key]
-                        source_locations["unit_scale"] = SourceLocation(
-                            source_row=row_idx
-                        )
-                    else:
-                        unmapped.append(
-                            UnmappedItem(
-                                source_row=row_idx,
-                                raw_label=k,
-                                raw_value=v,
-                                reason="ambiguous_unit_scale",
-                            )
-                        )
-                    handled_any = True
-
-                else:
-                    unmapped.append(
-                        UnmappedItem(
-                            source_row=row_idx,
-                            raw_label=k,
-                            raw_value=v,
-                            reason="unrecognized_note",
-                        )
-                    )
-                    handled_any = True
-
-            # Non-empty row that wasn't metadata or header
-            if not handled_any and any(c.strip() for c in row):
-                cell_text = " | ".join(c.strip() for c in row if c.strip())
-                unmapped.append(
-                    UnmappedItem(
-                        source_row=row_idx,
-                        raw_label=row[0].strip(),
-                        raw_value=cell_text,
-                        reason="unrecognized_note",
-                    )
-                )
-            continue
-
-        # After header: process line items, section headings, and totals
-        raw_label = (
-            row[particulars_col_idx].strip() if particulars_col_idx < len(row) else ""
-        )
-        raw_amount = row[current_col_idx].strip() if current_col_idx < len(row) else ""
-        norm_label = raw_label.lower()
-
-        # Prior period values (Layout B)
-        prior_values: list[tuple[str, str]] = []
-        if layout_kind == "B":
-            for _, p_idx, raw_h in prior_cols:
-                p_val = row[p_idx].strip() if p_idx < len(row) else ""
-                if p_val:
-                    if p_val.startswith("="):
-                        raise InvalidStatementError(
-                            f"Formula found in cell at row {row_idx}: '{p_val}'"
-                        )
-                    prior_values.append((raw_h, p_val))
-
-        if not raw_label and not raw_amount and not prior_values:
-            continue
-
-        # Section Headings (rows with no amount and no prior values)
-        if not raw_amount and not prior_values:
-            matched_heading = False
-            for sec_key, aliases in SECTION_HEADINGS.items():
-                if norm_label in aliases:
-                    matched_heading = True
-                    if sec_key == "assets_root":
-                        current_section = "assets"
-                    elif sec_key == "assets_current":
-                        current_section = "assets"
-                        current_subsection = "current"
-                    elif sec_key == "assets_non_current":
-                        current_section = "assets"
-                        current_subsection = "non_current"
-                    elif sec_key == "liabilities_root":
-                        current_section = "liabilities"
-                    elif sec_key == "liabilities_current":
-                        current_section = "liabilities"
-                        current_subsection = "current"
-                    elif sec_key == "liabilities_non_current":
-                        current_section = "liabilities"
-                        current_subsection = "non_current"
-                    elif sec_key == "equity_root":
-                        current_section = "equity"
-                    break
-
-            if not matched_heading:
-                # Group subheader or descriptive note
-                unmapped.append(
-                    UnmappedItem(
-                        source_row=row_idx,
-                        raw_label=raw_label,
-                        raw_value="",
-                        reason="unrecognized_note",
-                    )
-                )
-            continue
-
-        # Preserve prior period values into unmapped (Layout B)
-        for raw_h, p_val in prior_values:
-            p_val_clean = p_val.replace(",", "")
-            unmapped.append(
-                UnmappedItem(
-                    source_row=row_idx,
-                    raw_label=raw_label,
-                    raw_value=f"{raw_h}: {p_val_clean}",
-                    reason="prior_period_value",
-                )
+            raw_label = (
+                row[particulars_col_idx].strip()
+                if particulars_col_idx < len(row)
+                else ""
+            )
+            raw_amount_str = (
+                row[current_col_idx].strip() if current_col_idx < len(row) else ""
             )
 
-        # Parse numeric value for current period (or None if missing)
-        value: Decimal | None = None
-        if raw_amount:
-            value = _parse_decimal(raw_amount, source_row=row_idx, field_name=raw_label)
+            # Prior values (Layout B)
+            prior_values: list[tuple[str, str]] = []
+            if layout_kind == "B":
+                for _, p_idx, raw_h in prior_cols:
+                    p_val = row[p_idx].strip() if p_idx < len(row) else ""
+                    if p_val:
+                        if p_val.startswith("="):
+                            raise InvalidStatementError(
+                                f"Formula found in cell at row {row_idx}"
+                            )
+                        prior_values.append((raw_h, p_val))
 
-        # Check for reported totals
-        if norm_label in REPORTED_TOTAL_LABELS["assets.total"]:
-            assets_total = value
-            source_locations["assets.total"] = SourceLocation(source_row=row_idx)
-            continue
-        elif norm_label in REPORTED_TOTAL_LABELS["liabilities.total"]:
-            liabilities_total = value
-            source_locations["liabilities.total"] = SourceLocation(source_row=row_idx)
-            continue
-        elif norm_label in REPORTED_TOTAL_LABELS["equity.total"]:
-            equity_total = value
-            source_locations["equity.total"] = SourceLocation(source_row=row_idx)
-            continue
+            if not raw_label and not raw_amount_str and not prior_values:
+                continue
 
-        # Check for reported intermediate subtotals (never count as leaf items)
-        if norm_label in REPORTED_SUBTOTAL_LABELS:
-            unmapped.append(
-                UnmappedItem(
-                    source_row=row_idx,
-                    raw_label=raw_label,
-                    raw_value=raw_amount,
-                    reason="reported_subtotal",
+            # Parse numeric value for current period (or None if missing)
+            value: Decimal | None = None
+            is_amount_blank = True
+            if raw_amount_str:
+                value = _parse_decimal(
+                    raw_amount_str, source_row=row_idx, field_name=raw_label
                 )
+                is_amount_blank = False
+
+            state_machine.process_row(
+                raw_label=raw_label,
+                value=value,
+                is_amount_blank=is_amount_blank,
+                raw_amount_str=raw_amount_str,
+                prior_values=prior_values,
+                row_idx=row_idx,
             )
-            continue
 
-        # Section-specific classification
-        if current_section == "equity" or any(
-            norm_label in aliases for aliases in EQUITY_LINE_ITEMS.values()
-        ):
-            if any(norm_label == alias for alias in EQUITY_LINE_ITEMS["share_capital"]):
-                share_capital = value
-                source_locations["equity.share_capital"] = SourceLocation(
-                    source_row=row_idx
-                )
-            elif any(
-                norm_label == alias for alias in EQUITY_LINE_ITEMS["retained_earnings"]
-            ):
-                retained_earnings = value
-                source_locations["equity.retained_earnings"] = SourceLocation(
-                    source_row=row_idx
-                )
-            else:
-                if value is not None:
-                    unmapped.append(
-                        UnmappedItem(
-                            source_row=row_idx,
-                            raw_label=raw_label,
-                            raw_value=raw_amount,
-                            reason="unrecognized_financial_item",
-                        )
-                    )
-
-        elif current_section == "assets":
-            # Match canonical field
-            canonical = None
-            for can_field, aliases in CANONICAL_LINE_ITEMS["assets"].items():
-                if norm_label in aliases:
-                    canonical = can_field
-                    break
-
-            if canonical is not None:
-                item = LineItem(
-                    canonical_field=canonical,
-                    raw_label=raw_label,
-                    value=value,
-                    source_row=row_idx,
-                )
-                if current_subsection == "current":
-                    assets_current.append(item)
-                else:
-                    assets_non_current.append(item)
-            else:
-                if value is not None:
-                    unmapped.append(
-                        UnmappedItem(
-                            source_row=row_idx,
-                            raw_label=raw_label,
-                            raw_value=raw_amount,
-                            reason="unrecognized_financial_item",
-                        )
-                    )
-
-        elif current_section == "liabilities":
-            canonical = None
-            for can_field, aliases in CANONICAL_LINE_ITEMS["liabilities"].items():
-                if norm_label in aliases:
-                    canonical = can_field
-                    break
-
-            if canonical is not None:
-                item = LineItem(
-                    canonical_field=canonical,
-                    raw_label=raw_label,
-                    value=value,
-                    source_row=row_idx,
-                )
-                if current_subsection == "current":
-                    liabilities_current.append(item)
-                else:
-                    liabilities_non_current.append(item)
-            else:
-                if value is not None:
-                    unmapped.append(
-                        UnmappedItem(
-                            source_row=row_idx,
-                            raw_label=raw_label,
-                            raw_value=raw_amount,
-                            reason="unrecognized_financial_item",
-                        )
-                    )
+    except csv.Error as exc:
+        msg = str(exc)
+        line_ref = reader.line_num if reader.line_num > 0 else (current_line + 1)
+        if "field larger than field limit" in msg or "larger than field limit" in msg:
+            raise ResourceLimitError(
+                f"CSV cell length exceeds limit at row {line_ref}"
+            ) from exc
+        raise InvalidStatementError(f"Malformed CSV syntax at row {line_ref}") from exc
 
     if not header_found:
         raise UnsupportedFormatError(
@@ -882,26 +1262,26 @@ def parse_balance_sheet_csv(content: bytes, *, document_id: UUID) -> BalanceShee
             "Missing required reporting date in statement preamble"
         )
 
-    # Assemble validated models
+    assert state_machine is not None
     return BalanceSheet(
         company=company,
         reporting_date=reporting_date,
         currency=currency,
         unit_scale=unit_scale,
         assets=SectionItems(
-            current=assets_current,
-            non_current=assets_non_current,
-            total=assets_total,
+            current=state_machine.assets_current,
+            non_current=state_machine.assets_non_current,
+            total=state_machine.assets_total,
         ),
         liabilities=SectionItems(
-            current=liabilities_current,
-            non_current=liabilities_non_current,
-            total=liabilities_total,
+            current=state_machine.liabilities_current,
+            non_current=state_machine.liabilities_non_current,
+            total=state_machine.liabilities_total,
         ),
         equity=Equity(
-            share_capital=share_capital,
-            retained_earnings=retained_earnings,
-            total=equity_total,
+            share_capital=state_machine.share_capital,
+            retained_earnings=state_machine.retained_earnings,
+            total=state_machine.equity_total,
         ),
         unmapped=unmapped,
         source_metadata=SourceMetadata(

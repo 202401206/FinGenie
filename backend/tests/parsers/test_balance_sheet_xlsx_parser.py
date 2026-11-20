@@ -290,3 +290,199 @@ class TestBalanceSheetXLSXErrorsAndSecurity:
 
         with pytest.raises(ResourceLimitError, match="Worksheet coordinates exceed"):
             parse_balance_sheet_xlsx(buf.getvalue(), document_id=TEST_DOC_ID)
+
+
+class TestBalanceSheetXLSXParityPolicies:
+    """Verifies that XLSX parser has 100% parity with CSV parser policies."""
+
+    def test_conflicting_currency_declarations_rejected(self) -> None:
+        """Conflicting currency declarations in XLSX raise InvalidStatementError."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Currency: INR", "Currency: USD"],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", 100],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        with pytest.raises(
+            InvalidStatementError,
+            match="Contradictory currency declarations",
+        ):
+            parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+
+    def test_repeated_identical_metadata_preserves_first_seen_row(self) -> None:
+        """Repeated identical metadata declarations preserve the first-seen row in source_locations."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Currency: INR"],
+            ["Currency: INR"],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", 100],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        bs = parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+        assert bs.currency == "INR"
+        assert bs.source_locations["currency"].source_row == 2
+
+    def test_ambiguous_currency_declaration_routes_to_unmapped(self) -> None:
+        """Ambiguous currency symbol e.g. 'RS.' routes to unmapped with reason ambiguous_currency."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Currency: RS."],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", 100],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        bs = parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+        assert bs.currency is None
+        ambig = [u for u in bs.unmapped if u.reason == "ambiguous_currency"]
+        assert len(ambig) == 1
+        assert ambig[0].raw_value == "RS."
+
+    def test_conflicting_duplicate_scalar_totals_rejected(self) -> None:
+        """Conflicting total assets declarations in XLSX raise InvalidStatementError."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", 100],
+            ["Total Assets", 100],
+            ["Total Assets", 200],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        with pytest.raises(
+            InvalidStatementError,
+            match="Conflicting value for duplicate scalar field 'assets.total'",
+        ):
+            parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+
+    def test_duplicate_scalar_present_vs_blank_rejected(self) -> None:
+        """Reported total followed by a blank total in XLSX raises InvalidStatementError."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", 100],
+            ["Total Assets", 100],
+            ["Total Assets", ""],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        with pytest.raises(
+            InvalidStatementError,
+            match="Conflicting value for duplicate scalar field 'assets.total'",
+        ):
+            parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+
+    def test_identical_duplicate_total_accepted_with_repeated_reported_value(
+        self,
+    ) -> None:
+        """Identical duplicate total is accepted, preserving duplicate row in unmapped with repeated_reported_value."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", 100],
+            ["Total Assets", 100],
+            ["Total Assets", 100],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        bs = parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+        assert bs.assets.total == Decimal("100")
+        assert bs.source_locations["assets.total"].source_row == 5
+        repeated = [u for u in bs.unmapped if u.reason == "repeated_reported_value"]
+        assert len(repeated) == 1
+        assert repeated[0].source_row == 6
+        assert repeated[0].raw_label == "Total Assets"
+        assert repeated[0].raw_value == "100"
+
+    def test_tracked_empty_padding_columns_accepted(self) -> None:
+        """XLSX table with empty padding columns parses correctly at actual indices."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["", "Particulars", "", "Amount", ""],
+            ["", "Current Assets", "", "", ""],
+            ["", "Cash", "", 100, ""],
+            ["", "Total Assets", "", 100, ""],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        bs = parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+        assert len(bs.assets.current) == 1
+        assert bs.assets.current[0].canonical_field == "cash"
+        assert bs.assets.current[0].value == Decimal("100")
+        assert bs.assets.total == Decimal("100")
+
+    def test_extra_populated_column_in_data_row_rejected(self) -> None:
+        """Populated cell in an unassigned column raises InvalidStatementError in XLSX."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", 100, "ExtraValue"],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        with pytest.raises(
+            InvalidStatementError,
+            match="Unexpected populated cell in unassigned column",
+        ):
+            parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+
+    def test_blank_amounts_preserved_with_source_locations(self) -> None:
+        """Blank amounts on Cash and Total Assets in XLSX preserve LineItem(value=None) and source_locations."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Particulars", "Amount"],
+            ["Current Assets", ""],
+            ["Cash", ""],
+            ["Total Assets", ""],
+            ["Equity", ""],
+            ["Retained Earnings", ""],
+            ["Total Equity", ""],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        bs = parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+        assert len(bs.assets.current) == 1
+        assert bs.assets.current[0].canonical_field == "cash"
+        assert bs.assets.current[0].value is None
+        assert bs.assets.current[0].source_row == 4
+
+        assert bs.assets.total is None
+        assert bs.source_locations["assets.total"].source_row == 5
+
+        assert bs.equity.retained_earnings is None
+        assert bs.source_locations["equity.retained_earnings"].source_row == 7
+
+        assert bs.equity.total is None
+        assert bs.source_locations["equity.total"].source_row == 8
+
+    def test_root_transition_resets_subsection_state(self) -> None:
+        """Root transition from Assets to Liabilities in XLSX resets subsection; rows without subsection go to ambiguous_section."""
+        rows = [
+            ["Reporting Date: 2026-03-31"],
+            ["Particulars", "Amount"],
+            ["Non-Current Assets", ""],
+            ["Equipment", 100],
+            ["Liabilities", ""],
+            ["Trade Payables", 20],
+            ["Total Liabilities", 20],
+        ]
+        content = create_test_xlsx({"Sheet1": rows})
+        bs = parse_balance_sheet_xlsx(content, document_id=TEST_DOC_ID)
+        assert len(bs.assets.non_current) == 1
+        assert bs.assets.non_current[0].canonical_field == "property_plant_equipment"
+        assert bs.assets.non_current[0].value == Decimal("100")
+
+        # Trade Payables was under root Liabilities with no subsection -> unmapped ambiguous_section
+        assert len(bs.liabilities.current) == 0
+        assert len(bs.liabilities.non_current) == 0
+        ambig = [u for u in bs.unmapped if u.reason == "ambiguous_section"]
+        assert len(ambig) == 1
+        assert ambig[0].raw_label == "Trade Payables"
+        assert ambig[0].raw_value == "20"
+        assert ambig[0].source_row == 6
+
+        # Total Liabilities is a recognized total scalar and is preserved
+        assert bs.liabilities.total == Decimal("20")
+        assert bs.source_locations["liabilities.total"].source_row == 7

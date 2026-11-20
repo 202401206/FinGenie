@@ -58,9 +58,9 @@ All parser exceptions inherit from `StatementParserError`. Catch `StatementParse
 | Parser Exception | HTTP Status | Trigger / Meaning |
 | :--- | :--- | :--- |
 | `UnsupportedFormatError` | **415** / **422** | Unsupported file format, corrupted archive, or unrecognized table headers. |
-| `ResourceLimitError` | **413** / **422** | File > 5 MiB, expanded XLSX > 25 MiB, > 500 ZIP entries, > 50 columns, or > 20,000 rows. |
+| `ResourceLimitError` | **413** / **422** | File > 5 MiB, CSV cell > 131,072 characters, expanded XLSX > 25 MiB, > 500 ZIP entries, > 50 columns, or > 20,000 rows. |
 | `AmbiguousWorksheetError` | **422** | XLSX contains multiple candidate sheets matching table headers. |
-| `InvalidStatementError` | **422** | Missing reporting date, ambiguous period columns, non-numeric amounts, or formula in cells. |
+| `InvalidStatementError` | **422** | Missing reporting date, ambiguous/duplicate period columns, non-numeric amounts, formula cells, conflicting scalar totals, contradictory metadata, malformed CSV quoting, or unexpected populated cells in unassigned columns. |
 
 ### Safe Failure / No-Write Guarantee
 Parsing is strictly read-only and happens **before** storage reservations, database writes, or journal commits. If parsing fails, no database rows or storage blobs are created.
@@ -89,7 +89,11 @@ read_model = ParsedBalanceSheet.model_validate(db_payload)
    * `source_metadata.sheet_name`: `None` for CSV, exact sheet title string for XLSX.
    * `source_locations`: Maps scalar fields (`company`, `reporting_date`, `currency`, `unit_scale`, `assets.total`, `liabilities.total`, `equity.total`) to `{"source_row": int}`.
    * `source_row`: Preserved on every `LineItem` and `UnmappedItem`.
-4. **Prior-Period Values:** Stored in `unmapped` with `reason="prior_period_value"` and `raw_value="<Date>: <Amount>"`.
+4. **Prior-Period Values & Unmapped Codes:**
+   * Prior period values: stored in `unmapped` with `reason="prior_period_value"` and `raw_value="<Date>: <Amount>"`.
+   * Repeated identical reported totals: stored in `unmapped` with `reason="repeated_reported_value"`.
+   * Root items missing subsection: stored in `unmapped` with `reason="ambiguous_section"`.
+   * Subtotals: preserved in `unmapped` with `reason="reported_subtotal"`.
 
 ---
 

@@ -10,14 +10,11 @@ import openpyxl
 from openpyxl.cell.cell import Cell
 
 from app.parsers.balance_sheet.csv_parser import (
-    CANONICAL_LINE_ITEMS,
-    EQUITY_LINE_ITEMS,
     MAX_COLUMNS,
     MAX_ROWS,
-    REPORTED_SUBTOTAL_LABELS,
-    REPORTED_TOTAL_LABELS,
-    SCALE_MAPPINGS,
-    SECTION_HEADINGS,
+    MetadataAccumulator,
+    ScalarTracker,
+    TableStateMachine,
     _extract_key_values,
     _match_layout_a_header,
     _match_layout_b_header,
@@ -38,7 +35,6 @@ from app.parsers.errors import (
 from app.schemas.balance_sheet import (
     BalanceSheet,
     Equity,
-    LineItem,
     SectionItems,
     SourceLocation,
     SourceMetadata,
@@ -125,8 +121,9 @@ def _find_sheet_headers(
         str_cells = [_cell_to_str(c) for c in row]
 
         # Check Layout A
-        if _match_layout_a_header(str_cells):
-            return row_idx, "A", None
+        layout_a = _match_layout_a_header(str_cells)
+        if layout_a is not None:
+            return row_idx, "A", layout_a
 
         # Check Layout B
         layout_b = _match_layout_b_header(str_cells)
@@ -190,40 +187,26 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
         ) = matching_sheets[0]
         sheet_name = selected_sheet.title
 
-        # Step 4: Extract metadata, line items, and unmapped entries
-        company: str | None = None
-        reporting_date: date | None = None
-        currency: str | None = None
-        unit_scale: int | None = None
-
-        source_locations: dict[str, SourceLocation] = {}
-        unmapped: list[UnmappedItem] = []
-
-        # Sections
-        current_section: str = "assets"
-        current_subsection: str = "current"
-
-        assets_current: list[LineItem] = []
-        assets_non_current: list[LineItem] = []
-        liabilities_current: list[LineItem] = []
-        liabilities_non_current: list[LineItem] = []
-
-        assets_total: Decimal | None = None
-        liabilities_total: Decimal | None = None
-        equity_total: Decimal | None = None
-
-        share_capital: Decimal | None = None
-        retained_earnings: Decimal | None = None
+        metadata_accumulator = MetadataAccumulator()
 
         particulars_col_idx = 0
         current_col_idx = 1
         prior_cols: list[tuple[date, int, str]] = []
+        assigned_cols: set[int] = set()
 
-        # Iterate all rows of the selected worksheet
+        company: str | None = None
+        reporting_date: date | None = None
+        currency: str | None = None
+        unit_scale: int | None = None
+        source_locations: dict[str, SourceLocation] = {}
+        unmapped: list[UnmappedItem] = []
+
+        scalar_tracker: ScalarTracker | None = None
+        state_machine: TableStateMachine | None = None
+
         for row in selected_sheet.iter_rows(values_only=False):
             row_idx = row[0].row
 
-            # Check bounds
             if row_idx > MAX_ROWS:
                 raise ResourceLimitError(f"Row count exceeds {MAX_ROWS} row limit")
             if len(row) > MAX_COLUMNS:
@@ -231,11 +214,11 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
                     f"Row {row_idx} column count exceeds {MAX_COLUMNS} limit"
                 )
 
-            # Check for formula in any cell
+            # Check formulas in any cell
             for cell in row:
                 if _cell_is_formula(cell):
                     raise InvalidStatementError(
-                        f"Formula found in cell at row {row_idx}: '{cell.value}'"
+                        f"Formula found in cell at row {row_idx}"
                     )
 
             str_cells = [_cell_to_str(c) for c in row]
@@ -247,27 +230,20 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
                 kvs = _extract_key_values(str_cells)
                 handled_any = False
                 for k, v, _ in kvs:
-                    # Company
                     if any(
-                        comp_alias in k
-                        for comp_alias in (
+                        alias in k
+                        for alias in (
                             "company",
                             "entity",
                             "organization",
                             "name of company",
                         )
                     ):
-                        if company is None and v:
-                            company = v
-                            source_locations["company"] = SourceLocation(
-                                source_row=row_idx
-                            )
-                            handled_any = True
-
-                    # Reporting Date
+                        metadata_accumulator.record_company(v, row_idx)
+                        handled_any = True
                     elif any(
-                        date_alias in k
-                        for date_alias in (
+                        alias in k
+                        for alias in (
                             "reporting date",
                             "as at",
                             "as on",
@@ -276,52 +252,17 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
                             "date",
                         )
                     ):
-                        if reporting_date is None and v:
-                            reporting_date = _parse_date(v, source_row=row_idx)
-                            source_locations["reporting_date"] = SourceLocation(
-                                source_row=row_idx
-                            )
-                            handled_any = True
-
-                    # Currency
-                    elif any(
-                        curr_alias in k
-                        for curr_alias in (
-                            "currency",
-                            "reporting currency",
-                            "curr",
-                        )
-                    ):
-                        norm_curr = v.strip().upper()
-                        if norm_curr in ("INR", "INDIAN RUPEES", "₹"):
-                            currency = "INR"
-                            source_locations["currency"] = SourceLocation(
-                                source_row=row_idx
-                            )
-                        elif norm_curr in ("USD", "US DOLLARS"):
-                            currency = "USD"
-                            source_locations["currency"] = SourceLocation(
-                                source_row=row_idx
-                            )
-                        elif norm_curr in ("RS.", "RS", "$"):
-                            unmapped.append(
-                                UnmappedItem(
-                                    source_row=row_idx,
-                                    raw_label=k,
-                                    raw_value=v,
-                                    reason="ambiguous_currency",
-                                )
-                            )
-                        else:
-                            raise InvalidStatementError(
-                                f"Unsupported balance sheet currency '{v}' at row {row_idx}"
-                            )
+                        metadata_accumulator.record_reporting_date(v, row_idx)
                         handled_any = True
-
-                    # Unit Scale
                     elif any(
-                        scale_alias in k
-                        for scale_alias in (
+                        alias in k
+                        for alias in ("currency", "reporting currency", "curr")
+                    ):
+                        metadata_accumulator.record_currency(k, v, row_idx)
+                        handled_any = True
+                    elif any(
+                        alias in k
+                        for alias in (
                             "amounts in",
                             "scale",
                             "units in",
@@ -329,53 +270,35 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
                             "figures in",
                         )
                     ):
-                        scale_key = v.strip().lower()
-                        if scale_key in SCALE_MAPPINGS:
-                            unit_scale = SCALE_MAPPINGS[scale_key]
-                            source_locations["unit_scale"] = SourceLocation(
-                                source_row=row_idx
-                            )
-                        else:
-                            unmapped.append(
-                                UnmappedItem(
-                                    source_row=row_idx,
-                                    raw_label=k,
-                                    raw_value=v,
-                                    reason="ambiguous_unit_scale",
-                                )
-                            )
+                        metadata_accumulator.record_unit_scale(k, v, row_idx)
                         handled_any = True
-
                     else:
-                        unmapped.append(
-                            UnmappedItem(
-                                source_row=row_idx,
-                                raw_label=k,
-                                raw_value=v,
-                                reason="unrecognized_note",
-                            )
-                        )
+                        metadata_accumulator.record_note(k, v, row_idx)
                         handled_any = True
 
                 if not handled_any and any(str_cells):
                     cell_text = " | ".join(c for c in str_cells if c)
-                    unmapped.append(
-                        UnmappedItem(
-                            source_row=row_idx,
-                            raw_label=str_cells[0],
-                            raw_value=cell_text,
-                            reason="unrecognized_note",
-                        )
-                    )
+                    metadata_accumulator.record_note(str_cells[0], cell_text, row_idx)
                 continue
 
             # Header row setup
             if row_idx == header_row_idx:
+                (
+                    company,
+                    reporting_date,
+                    currency,
+                    unit_scale,
+                    source_locations,
+                    unmapped,
+                ) = metadata_accumulator.resolve()
+
                 if layout_kind == "A":
-                    particulars_col_idx = 0
-                    current_col_idx = 1
+                    particulars_col_idx = layout_info["particulars_col"]
+                    current_col_idx = layout_info["amount_col"]
+                    assigned_cols = {particulars_col_idx, current_col_idx}
                 elif layout_kind == "B":
                     particulars_col_idx = layout_info["particulars_col"]
+                    note_col = layout_info["note_col"]
                     dated_cols = layout_info["dated_cols"]
 
                     if reporting_date is None:
@@ -410,9 +333,31 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
                         for d, idx, raw_h in dated_cols
                         if idx != current_col_idx
                     ]
+
+                    assigned_cols = {particulars_col_idx, current_col_idx}
+                    if note_col is not None:
+                        assigned_cols.add(note_col)
+                    for _, p_idx, _ in prior_cols:
+                        assigned_cols.add(p_idx)
+
+                scalar_tracker = ScalarTracker(source_locations, unmapped)
+                state_machine = TableStateMachine(
+                    scalar_tracker, unmapped, source_locations
+                )
                 continue
 
             # Rows after header: line items, headings, totals
+            assert state_machine is not None
+
+            # Table shape validation: reject any populated cell in unassigned columns
+            for col_idx, cell in enumerate(row):
+                if col_idx not in assigned_cols:
+                    val_str = _cell_to_str(cell)
+                    if val_str:
+                        raise InvalidStatementError(
+                            f"Unexpected populated cell in unassigned column {col_idx} at row {row_idx}"
+                        )
+
             raw_label = (
                 str_cells[particulars_col_idx]
                 if particulars_col_idx < len(str_cells)
@@ -421,7 +366,6 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
             raw_amount_str = (
                 str_cells[current_col_idx] if current_col_idx < len(str_cells) else ""
             )
-            norm_label = raw_label.lower()
 
             # Prior values (Layout B)
             prior_values: list[tuple[str, Decimal]] = []
@@ -439,205 +383,50 @@ def parse_balance_sheet_xlsx(content: bytes, *, document_id: UUID) -> BalanceShe
             if not raw_label and not raw_amount_str and not prior_values:
                 continue
 
-            # Section headings (no current amount and no prior amounts)
-            if not raw_amount_str and not prior_values:
-                matched_heading = False
-                for sec_key, aliases in SECTION_HEADINGS.items():
-                    if norm_label in aliases:
-                        matched_heading = True
-                        if sec_key == "assets_root":
-                            current_section = "assets"
-                        elif sec_key == "assets_current":
-                            current_section = "assets"
-                            current_subsection = "current"
-                        elif sec_key == "assets_non_current":
-                            current_section = "assets"
-                            current_subsection = "non_current"
-                        elif sec_key == "liabilities_root":
-                            current_section = "liabilities"
-                        elif sec_key == "liabilities_current":
-                            current_section = "liabilities"
-                            current_subsection = "current"
-                        elif sec_key == "liabilities_non_current":
-                            current_section = "liabilities"
-                            current_subsection = "non_current"
-                        elif sec_key == "equity_root":
-                            current_section = "equity"
-                        break
-
-                if not matched_heading:
-                    unmapped.append(
-                        UnmappedItem(
-                            source_row=row_idx,
-                            raw_label=raw_label,
-                            raw_value="",
-                            reason="unrecognized_note",
-                        )
-                    )
-                continue
-
-            # Preserve prior period values into unmapped (Layout B)
-            for raw_h, p_val in prior_values:
-                unmapped.append(
-                    UnmappedItem(
-                        source_row=row_idx,
-                        raw_label=raw_label,
-                        raw_value=f"{raw_h}: {p_val}",
-                        reason="prior_period_value",
-                    )
-                )
-
             # Parse numeric value for current period
             current_cell = row[current_col_idx] if current_col_idx < len(row) else None
             value: Decimal | None = None
-            if current_cell is not None and current_cell.value not in (
-                None,
-                "",
-            ):
+            is_amount_blank = True
+            if current_cell is not None and current_cell.value not in (None, ""):
                 value = _xlsx_cell_to_decimal(
                     current_cell, source_row=row_idx, field_name=raw_label
                 )
+                is_amount_blank = False
 
-            # Check for reported totals
-            if norm_label in REPORTED_TOTAL_LABELS["assets.total"]:
-                assets_total = value
-                source_locations["assets.total"] = SourceLocation(source_row=row_idx)
-                continue
-            elif norm_label in REPORTED_TOTAL_LABELS["liabilities.total"]:
-                liabilities_total = value
-                source_locations["liabilities.total"] = SourceLocation(
-                    source_row=row_idx
-                )
-                continue
-            elif norm_label in REPORTED_TOTAL_LABELS["equity.total"]:
-                equity_total = value
-                source_locations["equity.total"] = SourceLocation(source_row=row_idx)
-                continue
-
-            # Intermediate section subtotals
-            if norm_label in REPORTED_SUBTOTAL_LABELS:
-                unmapped.append(
-                    UnmappedItem(
-                        source_row=row_idx,
-                        raw_label=raw_label,
-                        raw_value=raw_amount_str,
-                        reason="reported_subtotal",
-                    )
-                )
-                continue
-
-            # Section-specific classification
-            if current_section == "equity" or any(
-                norm_label in aliases for aliases in EQUITY_LINE_ITEMS.values()
-            ):
-                if any(
-                    norm_label == alias for alias in EQUITY_LINE_ITEMS["share_capital"]
-                ):
-                    share_capital = value
-                    source_locations["equity.share_capital"] = SourceLocation(
-                        source_row=row_idx
-                    )
-                elif any(
-                    norm_label == alias
-                    for alias in EQUITY_LINE_ITEMS["retained_earnings"]
-                ):
-                    retained_earnings = value
-                    source_locations["equity.retained_earnings"] = SourceLocation(
-                        source_row=row_idx
-                    )
-                else:
-                    if value is not None:
-                        unmapped.append(
-                            UnmappedItem(
-                                source_row=row_idx,
-                                raw_label=raw_label,
-                                raw_value=raw_amount_str,
-                                reason="unrecognized_financial_item",
-                            )
-                        )
-
-            elif current_section == "assets":
-                canonical = None
-                for can_field, aliases in CANONICAL_LINE_ITEMS["assets"].items():
-                    if norm_label in aliases:
-                        canonical = can_field
-                        break
-
-                if canonical is not None:
-                    item = LineItem(
-                        canonical_field=canonical,
-                        raw_label=raw_label,
-                        value=value,
-                        source_row=row_idx,
-                    )
-                    if current_subsection == "current":
-                        assets_current.append(item)
-                    else:
-                        assets_non_current.append(item)
-                else:
-                    if value is not None:
-                        unmapped.append(
-                            UnmappedItem(
-                                source_row=row_idx,
-                                raw_label=raw_label,
-                                raw_value=raw_amount_str,
-                                reason="unrecognized_financial_item",
-                            )
-                        )
-
-            elif current_section == "liabilities":
-                canonical = None
-                for can_field, aliases in CANONICAL_LINE_ITEMS["liabilities"].items():
-                    if norm_label in aliases:
-                        canonical = can_field
-                        break
-
-                if canonical is not None:
-                    item = LineItem(
-                        canonical_field=canonical,
-                        raw_label=raw_label,
-                        value=value,
-                        source_row=row_idx,
-                    )
-                    if current_subsection == "current":
-                        liabilities_current.append(item)
-                    else:
-                        liabilities_non_current.append(item)
-                else:
-                    if value is not None:
-                        unmapped.append(
-                            UnmappedItem(
-                                source_row=row_idx,
-                                raw_label=raw_label,
-                                raw_value=raw_amount_str,
-                                reason="unrecognized_financial_item",
-                            )
-                        )
+            state_machine.process_row(
+                raw_label=raw_label,
+                value=value,
+                is_amount_blank=is_amount_blank,
+                raw_amount_str=raw_amount_str,
+                prior_values=prior_values,
+                row_idx=row_idx,
+            )
 
         if reporting_date is None:
             raise InvalidStatementError(
                 "Missing required reporting date in statement preamble"
             )
 
+        assert state_machine is not None
         return BalanceSheet(
             company=company,
             reporting_date=reporting_date,
             currency=currency,
             unit_scale=unit_scale,
             assets=SectionItems(
-                current=assets_current,
-                non_current=assets_non_current,
-                total=assets_total,
+                current=state_machine.assets_current,
+                non_current=state_machine.assets_non_current,
+                total=state_machine.assets_total,
             ),
             liabilities=SectionItems(
-                current=liabilities_current,
-                non_current=liabilities_non_current,
-                total=liabilities_total,
+                current=state_machine.liabilities_current,
+                non_current=state_machine.liabilities_non_current,
+                total=state_machine.liabilities_total,
             ),
             equity=Equity(
-                share_capital=share_capital,
-                retained_earnings=retained_earnings,
-                total=equity_total,
+                share_capital=state_machine.share_capital,
+                retained_earnings=state_machine.retained_earnings,
+                total=state_machine.equity_total,
             ),
             unmapped=unmapped,
             source_metadata=SourceMetadata(

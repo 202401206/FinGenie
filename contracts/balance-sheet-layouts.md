@@ -89,6 +89,8 @@ Unrecognized rows, metadata conflicts, or prior period values are preserved in `
 | `prior_period_value` | Amount belonging to a prior comparative period (Layout B). Formatted as `<Date>: <Amount>`. |
 | `ambiguous_currency` | Currency declaration could not be matched unambiguously to supported codes. |
 | `ambiguous_unit_scale` | Unit scale text could not be resolved to a supported integer multiplier. |
+| `repeated_reported_value` | Repeated identical scalar totals (e.g. duplicate identical `Total Assets`). The first occurrence populates the model; duplicates are preserved here. |
+| `ambiguous_section` | Line item located directly under a root section (e.g. `Assets` or `Liabilities`) without a current vs non-current subsection heading. |
 
 ---
 
@@ -100,12 +102,25 @@ Unrecognized rows, metadata conflicts, or prior period values are preserved in `
 2. **Missing vs. Zero:**
    * Missing or empty cells remain `None` (`null`). Zero is never fabricated.
    * Real zero reported in the source remains `Decimal("0")`.
-3. **No Floats or Booleans:**
+   * Blank amounts on canonical items and totals are preserved as `LineItem(..., value=None)` or scalar `None` with `source_locations` / `source_row` tracked.
+3. **Duplicate Scalars & Metadata Policies:**
+   * Repeated identical scalar totals (e.g. `Total Assets`) are accepted once; duplicate identical rows go to `unmapped` with `repeated_reported_value`.
+   * Conflicting scalar totals (or present vs blank conflict) raise `InvalidStatementError`.
+   * Repeated identical metadata declarations preserve the first-seen row in `source_locations`.
+   * Contradictory metadata declarations (e.g. `INR` vs `USD`) raise `InvalidStatementError`.
+   * Ambiguous currency declarations (e.g. `RS.`, `$`) leave `currency=None` and log to `unmapped` (`ambiguous_currency`). Ambiguity takes precedence over certainty if mixed.
+   * Unsupported currency codes raise `InvalidStatementError`.
+4. **Table Padding & Column Bounds:**
+   * Empty padding columns are permitted if all data rows leave those columns empty.
+   * Unexpected populated cells in unassigned columns (e.g. unquoted comma-separated numbers like `Cash,1,25,000.00`) raise `InvalidStatementError`.
+   * Duplicate or ambiguous period column dates in Layout B headers raise `InvalidStatementError`.
+5. **No Floats or Booleans:**
    * `float` arithmetic is forbidden. Booleans (`True`/`False`) are rejected.
-4. **Source Row Provenance:**
+6. **Source Row Provenance:**
    * Every line item and metadata entry records its 1-based original CSV record or Excel row (`source_row` > 0).
-5. **Resource Limits:**
+7. **Resource Limits:**
    * File size: 5 MiB max.
+   * CSV cell length: 131,072 characters (128 KiB) max. Cells exceeding this limit raise `ResourceLimitError`.
    * XLSX expanded container: 25 MiB max, 500 archive entries max. Macro-enabled workbooks (`.xlsm`) strictly rejected.
    * Grid bounds: 50 columns max, 20,000 rows max.
    * Formulas: Formulas in financial or date cells are strictly rejected (`InvalidStatementError`).

@@ -36,12 +36,15 @@ See [HANDOFF.md](HANDOFF.md) for endpoint integration, exception mapping, and da
 ## Processing Rules & Security Boundaries
 
 ### 1. CSV Format
-- **Encoding:** UTF-8 and UTF-8 with BOM (`utf-8-sig`).
+- **Encoding:** UTF-8 and UTF-8 with BOM (`utf-8-sig`). Invalid UTF-8 raises `UnsupportedFormatError`.
 - **Logical Rows:** Enumerated 1-based records via standard `csv.reader`, accurately counting quoted multiline fields as single rows.
-- **Amounts:** Parsed directly from numeric text to `Decimal` without converting through binary float.
-- **Limits:** 5 MiB file size, 20,000 rows, 50 columns.
+- **Amounts:** Parsed directly from numeric text to `Decimal` without converting through binary float. Blank amounts are preserved as `None` (never fabricated zero).
+- **Quoting & Syntax:** Malformed CSV quoting syntax is caught and normalized to `InvalidStatementError`.
+- **Column Tracking & Padding:** Explicit column indices are tracked; empty padding columns are permitted if data rows leave them empty. Unexpected populated cells in unassigned columns raise `InvalidStatementError`.
+- **Limits:** 5 MiB file size, 20,000 rows, 50 columns, and 131,072 characters (128 KiB) maximum per CSV cell (raises `ResourceLimitError`).
 
 ### 2. XLSX Format
+- **Parity Guarantee:** Enforces 100% algorithmic and behavioral parity with CSV parser rules, including metadata accumulation, duplicate scalar conflict detection vs. `repeated_reported_value` unmapped preservation, section state machine transitions (`ambiguous_section`), and column padding bounds.
 - **Container Security:** Treated as untrusted ZIP archives. Checked for magic bytes (`PK\x03\x04`), max 500 archive entries, 5 MiB upload size, and 25 MiB uncompressed size limit to guard against decompression bombs. Macro-enabled workbooks (`.xlsm` / `vbaProject.bin`) are strictly rejected. XML DTD attacks prevented via `defusedxml`.
 - **Worksheet Selection:** Scans candidate sheets; ignores empty or cover sheets. Exactly one sheet must match the supported transaction table headers. Multiple matching sheets raise `AmbiguousWorksheetError`; zero matches raise `UnsupportedFormatError`. The exact sheet name is saved in `source_metadata.sheet_name`.
 - **Row Provenance:** Uses exact Excel row numbers (`cell.row`, 1-based) for `source_row` and `source_locations`.
