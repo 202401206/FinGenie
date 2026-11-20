@@ -1,0 +1,20 @@
+Company: Synthetic Demo Company
+Reporting Date: 2026-01-31
+Currency: INR,Scale: Lakhs
+Particulars,Amount
+Current Assets,
+Cash,100
+Receivables,50
+Non-Current Assets,
+Equipment,150
+Total Assets,300
+Current Liabilities,
+Payables,80
+Non-Current Liabilities,
+Long-Term Borrowings,
+Long-term loan,40
+Total Liabilities,120
+Equity,
+Share Capital,150
+Retained Earnings,30
+Total Equity,180
