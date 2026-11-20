@@ -99,11 +99,12 @@ class LocalSupabase:
         self.timeout_after = None
         self.reject_save = False
         self.reject_delete = False
+        self.reject_delete_token = None
+        self.tokens = {"Bearer token-a": OWNER, "Bearer token-b": OTHER}
 
     def handle(self, request):
-        user = {"Bearer token-a": OWNER, "Bearer token-b": OTHER}.get(
-            request.headers.get("authorization")
-        )
+        authorization = request.headers.get("authorization")
+        user = self.tokens.get(authorization)
         if user is None:
             return httpx.Response(401)
         if request.url.path == "/auth/v1/user":
@@ -214,6 +215,8 @@ class LocalSupabase:
                     )
                 return httpx.Response(200, json={"Key": f"financial-documents/{name}"})
             assert request.method == "DELETE"
+            if authorization and authorization == self.reject_delete_token:
+                return httpx.Response(401)
             if self.reject_delete:
                 return httpx.Response(503)
             names = json.loads(request.content)["prefixes"]
@@ -562,6 +565,16 @@ def test_other_users_recovery_cannot_change_the_owners_saved_data(database):
     asyncio.run(run())
 
 
+@asynccontextmanager
+async def local_api_connection(server):
+    async with httpx.AsyncClient(
+        base_url="https://synthetic.supabase.co",
+        headers={"apikey": "sb_publishable_synthetic"},
+        transport=httpx.MockTransport(server.handle),
+    ) as client:
+        yield client
+
+
 @pytest.fixture
 def api_database_client(database):
     """Actual API/parser/repositories/RLS; synthetic Auth and Storage transport."""
@@ -574,11 +587,7 @@ def api_database_client(database):
     previous = app.dependency_overrides.copy()
 
     async def connection():
-        async with httpx.AsyncClient(
-            base_url="https://synthetic.supabase.co",
-            headers={"apikey": "sb_publishable_synthetic"},
-            transport=httpx.MockTransport(server.handle),
-        ) as client:
+        async with local_api_connection(server) as client:
             yield client
 
     app.dependency_overrides[get_auth_client] = connection

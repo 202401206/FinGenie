@@ -216,6 +216,34 @@ Always display the disclaimer last. The numeric guard validates generated text
 against calculation outputs. Persistent verification failure returns 502
 `ai_validation_failed`.
 
+## Sprint 2: upload attempt recovery
+
+Upload errors retain `detail.code` and `detail.message` and may include
+`detail.attempt_id` once the attempt was recorded or its recording became
+uncertain. If the entire upload reply was lost, list recent attempts. Use the
+current signed-in user's bearer token for all three routes.
+
+| Request | Successful response |
+| --- | --- |
+| GET /api/upload-attempts?limit=50&offset=0 | 200 with `items`, `limit`, `offset`, `total`. Limit is 1 to 100. Offset is nonnegative. |
+| GET /api/upload-attempts/{attempt_id} | 200 with the latest recorded status for the attempt. |
+| POST /api/upload-attempts/{attempt_id}/recover | Send `{}`. 200 with `attempt_id`, `status` (`completed` or `cleaned`), and `receipt` (null if cleaned). |
+
+List and detail include the attempt, workspace and document IDs, document type,
+status, last error code, receipt and timestamps. Recent attempts are ordered
+newest first by creation time and ID. Status can be `pending`, `completed`,
+`cleaned` or `needs_review`. Only a completed attempt has a receipt. It contains
+`workspace_id`, `document_id`, `status: "parsed"` and `transaction_count`.
+Balance sheets have a transaction count of zero. Private recovery context
+stays on the server.
+
+Missing and foreign IDs both return 404 `upload_attempt_not_found`. Recovery may
+return 401 if a fresh token is needed, 409 `state_conflict` if the attempt needs
+review, or 503 `reconciliation_required` / `cleanup_required` if the result
+remains uncertain. Recovery errors after an attempt is identified include its ID
+where appropriate. Retry using the same attempt ID. Recovery checks or cleans up
+the original attempt. A cleaned attempt means the original upload failed.
+
 ## Sprint 3: chat and projections
 
 `POST /api/workspaces/{id}/chat`: request

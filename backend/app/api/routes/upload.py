@@ -146,9 +146,15 @@ def create_upload_router(
             headers = (
                 {"WWW-Authenticate": "Bearer"} if error.status_code == 401 else None
             )
+            detail = {"code": error.code, "message": str(error)}
+            if (
+                isinstance(error, UploadProcessingError)
+                and error.attempt_id is not None
+            ):
+                detail["attempt_id"] = str(error.attempt_id)
             raise HTTPException(
                 error.status_code,
-                detail={"code": error.code, "message": str(error)},
+                detail=detail,
                 headers=headers,
             ) from None
         except StarletteHTTPException as error:

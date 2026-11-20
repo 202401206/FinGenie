@@ -226,7 +226,6 @@ class UploadService:
                     "unauthorized",
                     "A valid access token is required.",
                     attempt,
-                    attempt_id=attempt_id,
                 ) from None
             except SourceConflict:
                 raise UploadProcessingError(
@@ -234,7 +233,6 @@ class UploadService:
                     "upload_conflict",
                     "Upload context conflicts with current state.",
                     attempt,
-                    attempt_id=attempt_id,
                 ) from None
             except ParsedDocumentRejected:
                 raise UploadProcessingError(
@@ -242,9 +240,8 @@ class UploadService:
                     "invalid_parsed_document",
                     "Upload context was rejected.",
                     attempt,
-                    attempt_id=attempt_id,
                 ) from None
-            except SourceUnavailable:
+            except (SourceUnavailable, UploadAttemptNotFound):
                 raise UploadProcessingError(
                     503,
                     "reconciliation_required",
