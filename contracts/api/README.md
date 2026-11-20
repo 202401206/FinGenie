@@ -189,7 +189,11 @@ monetary values and ratios. Unresolved classifications or missing current amount
 withhold working capital and current ratio. Unparsed/failed workspaces return 409 `document_not_ready`.
 
 `POST /api/workspaces/{id}/summary`: JSON request `{}`. Returns a nonstreaming,
-validated summary of the workspace's calculated results, never the raw file.
+validated summary of the signed-in user's saved document. Only verified metrics
+are sent to the summary provider. Missing and foreign workspaces return 404
+`workspace_not_found`. If the document has not parsed, the route returns 409
+`document_not_ready`. If required metrics are unavailable or results are
+unreliable, it returns 409 `analysis_not_ready` before calling the provider.
 Example 200:
 
 ```json
@@ -208,9 +212,9 @@ Example 200:
 }
 ```
 
-Always display the disclaimer last. Numeric content must pass the future guard
-against referenced calculation outputs; references alone do not establish validity.
-Do not generate an authoritative summary when required inputs are unreliable.
+Always display the disclaimer last. The numeric guard validates generated text
+against calculation outputs. Persistent verification failure returns 502
+`ai_validation_failed`.
 
 ## Sprint 3: chat and projections
 
@@ -218,6 +222,7 @@ Do not generate an authoritative summary when required inputs are unreliable.
 `{"message":"What is my net cash flow?"}` (nonempty text; proposed maximum 2000
 characters). Initial proposed contract is one question/answer per request, no
 stored conversation history or streaming. A future history design needs review.
+The existing chat route uses the same owned-document and readiness checks as summary.
 200 body uses the same `text`, `calculation_ids`, `source_refs`, `disclaimer` shape
 as summary. Call calculation tools; reject/retry unsupported numbers. Bound retries;
 if validation cannot succeed return 502 `ai_validation_failed` with no unvalidated

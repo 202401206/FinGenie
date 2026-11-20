@@ -11,6 +11,7 @@ import subprocess
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -967,3 +968,81 @@ def test_uploaded_bank_statement_feeds_owned_analysis(api_database_client):
     assert (
         client.get(url, headers={"Authorization": "Bearer token-b"}).status_code == 404
     )
+
+
+@pytest.mark.parametrize(
+    "kind,user_type,layout,summary_text,calculation",
+    [
+        (
+            "bank_statement",
+            "personal",
+            "a",
+            "Net cash flow is INR 2500.",
+            "bank.net_cash_flow.v1",
+        ),
+        (
+            "balance_sheet",
+            "business",
+            "a",
+            "Working capital is INR 7000000.",
+            "balance_sheet.working_capital.v1",
+        ),
+        (
+            "balance_sheet",
+            "business",
+            "b",
+            "Working capital is USD 400000000.",
+            "balance_sheet.working_capital.v1",
+        ),
+    ],
+)
+def test_uploaded_document_feeds_owned_summary(
+    api_database_client, monkeypatch, kind, user_type, layout, summary_text, calculation
+):
+    client, _ = api_database_client
+    calls = []
+
+    class MockProvider:
+        is_configured = True
+
+        async def generate(self, *, messages, temperature):
+            calls.append(messages)
+            return SimpleNamespace(content=summary_text)
+
+    async def unexpected_chat(*args):
+        pytest.fail("A foreign workspace reached the chat engine.")
+
+    monkeypatch.setattr("app.ai.summary.GroqProvider", MockProvider)
+    monkeypatch.setattr("app.api.routes.ai.chat_with_workspace", unexpected_chat)
+    uploaded = statement_upload(
+        client,
+        layout_bytes(layout, "csv", document_type=kind),
+        user_type=user_type,
+        document_type=kind,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    workspace_id = uploaded.json()["workspace"]["id"]
+    document_id = uploaded.json()["document"]["id"]
+    url = f"/api/workspaces/{workspace_id}"
+    other_headers = {"Authorization": "Bearer token-b"}
+    foreign_summary = client.post(f"{url}/summary", headers=other_headers)
+    foreign_chat = client.post(
+        f"{url}/chat", headers=other_headers, json={"message": "How did I do?"}
+    )
+    assert foreign_summary.status_code == foreign_chat.status_code == 404
+    assert foreign_summary.json()["detail"]["code"] == "workspace_not_found"
+    assert calls == []
+
+    owned = client.post(
+        f"{url}/summary", headers={"Authorization": "Bearer token-a"}, json={}
+    )
+    assert owned.status_code == 200, owned.text
+    result = owned.json()
+    assert result["text"] == summary_text
+    assert result["disclaimer"] == "This is not financial advice."
+    assert calculation in result["calculation_ids"]
+    assert {source["document_id"] for source in result["source_refs"]} == {document_id}
+    assert all(source["source_rows"] for source in result["source_refs"])
+    (messages,) = calls
+    assert document_id not in messages[1]["content"]
+    assert "Synthetic" not in messages[1]["content"]

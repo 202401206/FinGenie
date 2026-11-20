@@ -8,6 +8,8 @@ from app.schemas.analysis_responses import WorkspaceAnalysisResponse
 
 def build_workspace_analysis(
     context: ParsedDocumentContext,
+    *,
+    include_bank_balances: bool = False,
 ) -> WorkspaceAnalysisResponse:
     statement = context.parsed_json
     data = statement.model_dump(mode="python")
@@ -22,11 +24,15 @@ def build_workspace_analysis(
 
         # These two KPIs sum classified current items. An empty section or
         # unresolved line cannot establish a complete current-assets/liabilities sum.
+        # The parser retains prior-period values for reference alongside current rows.
         current_items = statement.assets.current + statement.liabilities.current
         incomplete_current = (
             not statement.assets.current
             or not statement.liabilities.current
-            or bool(statement.unmapped)
+            or any(
+                item.get("reason") != "prior_period_value"
+                for item in statement.unmapped
+            )
             or any(
                 item.value is None or not item.canonical_field for item in current_items
             )
@@ -55,6 +61,11 @@ def build_workspace_analysis(
         if metadata_reason or (incomplete_current and result["reliability"] == "valid"):
             result["reliability"] = "insufficient_data"
     else:
-        result = analyze_bank_statement(data, workspace_id)
+        result = analyze_bank_statement(
+            data, workspace_id, include_balance_metrics=include_bank_balances
+        )
+        for metric in result["metrics"]:
+            if metric["unit"] is None:
+                metric["unit"] = "unknown"
 
     return WorkspaceAnalysisResponse.model_validate(result)
