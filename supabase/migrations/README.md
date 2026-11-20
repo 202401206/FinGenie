@@ -80,4 +80,20 @@ snapshots with zero transactions, and marks only unfinished attempts for cleanup
 The original bank recovery and generic failed-source release functions are unchanged.
 This is a locally tested migration, not a hosted deployment. Run
 `../tests/balance_recovery.sql` after all migrations; the complete runner now has
-seven suites. Upload-attempt journals/public recovery routes remain separate work.
+the suites described below. Public recovery routes remain separate A4 work.
+
+`20261120100100_durable_upload_attempts.sql` adds the owner-RLS upload journal,
+immutable validated recovery context, safe paginated summary RPC and
+revision-checked reconciliation/settlement. Completed/cleaned states need actual
+saved-data or cancellation/absence evidence; a stale completed marker never
+authorizes cleanup. Needs-review context is preserved. Functions use invoker
+privileges and existing account/source lock order.
+
+The same migration includes upload-attempt payloads in Settings deletion,
+including journal-only uploads and outdated deletion-key protection. Journal
+context is retained until confirmed financial-data deletion; separate cancellation
+IDs/generations remain afterward. No tokens, automatic worker or public attempt
+HTTP routes are introduced. The production bank upload now requires this migration
+before source reservation. It was generated with the pinned CLI and tested locally,
+not deployed by this work. See `../../docs/sprint-2-upload-attempt-handoff.md` and
+`../tests/upload_attempts.sql`. The complete SQL runner now has eight suites.

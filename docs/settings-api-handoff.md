@@ -109,11 +109,13 @@ workspaces were deleted. Bank and balance documents are included, as are owned
 financial-bucket objects that have no remaining document row. Empty accounts also
 succeed. The Auth account, name/email and preferences remain unchanged.
 
-Current backend code does not persist chat history, reports or AI outputs in
-separate tables. Their frontend state/caches still need clearing. Any future
-workspace-linked persistent analysis/chat table or upload-attempt journal must be
-integrated with deletion before it is enabled; do not retain financial payloads
-in a second store. Minimal deletion receipts, generations and cancellation UUIDs
+P4 adds the owned upload-attempt journal and includes its expected financial JSON
+and context in confirmed financial-data deletion. Journal-only attempts are
+cancelled and their rows are purged too. A completed deletion key rejects newly
+journaled data even before workspace reservation. Current backend code does not
+persist chat history, reports or AI outputs in separate tables; their frontend
+state/caches still need clearing. Future financial stores must also join deletion.
+Minimal deletion receipts, generations and cancellation UUIDs
 remain to prevent late writes and support retries. They contain no parsed JSON,
 raw filenames, tokens or financial values. Source manifest paths are removed
 after confirmed completion.
@@ -174,9 +176,10 @@ generation midway through a failed old upload to make it pass. Deletion incremen
 the generation and invalidates pre-deletion attempts, even if they had not reserved
 metadata yet. Existing registered attempts also receive cancellation markers.
 
-Future durable recovery/journal work must preserve this generation and respect the
-account-level deletion barrier. Do not replay or finalize deleted attempts using
-fresh IDs, and do not leave expected financial JSON behind after deletion.
+The P4 durable recovery journal preserves this generation and respects the
+account-level deletion barrier. It does not replay or finalize deleted attempts
+using fresh IDs, and financial deletion purges its expected JSON/context. See
+[attempt handoff](sprint-2-upload-attempt-handoff.md) for Anshuman's A4 interfaces.
 
 ## Verification and deployment
 

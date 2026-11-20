@@ -1,4 +1,4 @@
-"""Request-scoped upload helpers for the future upload service and API routes."""
+"""Request-scoped authenticated upload and recovery dependencies."""
 
 from dataclasses import dataclass
 from typing import Annotated
@@ -13,6 +13,7 @@ from app.core.security import (
     unauthorized,
 )
 from app.db.repositories.source_uploads import SourceReservationRepository
+from app.db.repositories.upload_attempts import UploadAttemptRepository
 from app.db.repositories.upload_recovery import UploadRecoveryRepository
 from app.schemas.responses import CurrentUser
 from app.services.source_errors import (
@@ -21,6 +22,7 @@ from app.services.source_errors import (
     SourceUnavailable,
 )
 from app.services.source_storage import SourceStorage
+from app.services.upload_attempts import UploadAttemptService
 from app.services.upload_recovery import UploadRecoveryService
 
 
@@ -72,6 +74,18 @@ def get_upload_recovery_service(
     client: Annotated[httpx.AsyncClient, Depends(get_auth_client)],
 ) -> UploadRecoveryService:
     return UploadRecoveryService(
+        UploadRecoveryRepository(client, user.id, token),
+        SourceStorage(client, user.id, token),
+    )
+
+
+def get_upload_attempt_service(
+    user: Annotated[CurrentUser, Depends(require_user)],
+    token: Annotated[str, Depends(require_bearer)],
+    client: Annotated[httpx.AsyncClient, Depends(get_auth_client)],
+) -> UploadAttemptService:
+    return UploadAttemptService(
+        UploadAttemptRepository(client, user.id, token),
         UploadRecoveryRepository(client, user.id, token),
         SourceStorage(client, user.id, token),
     )

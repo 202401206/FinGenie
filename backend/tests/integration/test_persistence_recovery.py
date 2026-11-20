@@ -114,6 +114,22 @@ class LocalSupabase:
             if function == "finalize_bank_statement" and self.reject_save:
                 return httpx.Response(503)
             arguments = {
+                "list_upload_attempts": [("limit", "integer"), ("offset", "integer")],
+                "create_upload_attempt": [
+                    ("attempt_id", "uuid"),
+                    ("context", "jsonb"),
+                    ("expected_json", "jsonb"),
+                ],
+                "begin_journal_recovery": [
+                    ("attempt_id", "uuid"),
+                    ("revision", "bigint"),
+                ],
+                "settle_upload_attempt": [
+                    ("attempt_id", "uuid"),
+                    ("revision", "bigint"),
+                    ("status", "text"),
+                    ("error_code", "text"),
+                ],
                 "get_upload_generation": [],
                 "reserve_source_upload_at_generation": [
                     ("workspace_id", "uuid"),
@@ -214,6 +230,7 @@ class LocalSupabase:
             "workspaces",
             "documents",
             "transactions",
+            "upload_attempts",
         }
         params = request.url.params
         values, filters = [], []
@@ -234,7 +251,13 @@ class LocalSupabase:
             order = " order by " + params["order"].replace(".", " ").replace(",", ", ")
         limit, offset = int(params.get("limit", "100")), int(params.get("offset", "0"))
         columns = params["select"]
-        assert all(c.replace("_", "").isalpha() for c in columns.split(","))
+        assert all(
+            c.replace("_", "").replace(":", "").isalpha() for c in columns.split(",")
+        )
+        columns = ",".join(
+            f"{c.split(':')[1]} as {c.split(':')[0]}" if ":" in c else c
+            for c in columns.split(",")
+        )
         result = self.query(
             f"select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb)::text as body from "
             f"(select {columns} from public.{table}{where}{order} limit {limit} offset {offset}) r",

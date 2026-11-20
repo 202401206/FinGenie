@@ -37,6 +37,29 @@ def real_upload():
             return httpx.Response(200, json={"id": owner})
         if request.url.path.endswith("/get_upload_generation"):
             return httpx.Response(200, json={"generation": 0})
+        if request.url.path.endswith("/create_upload_attempt"):
+            state["events"].append(request.url.path)
+            data = simplejson.loads(request.content, use_decimal=True)
+            context = data["p_context"]
+            state["journal"] = {
+                "attempt_id": data["p_attempt_id"],
+                "workspace_id": context["workspace_id"],
+                "document_id": context["document_id"],
+                "document_type": context["document_type"],
+                "status": "pending",
+                "last_error_code": None,
+                "receipt": None,
+                "created_at": "2026-11-20T09:00:00Z",
+                "updated_at": "2026-11-20T09:00:00Z",
+            }
+            return httpx.Response(200, json=state["journal"])
+        if request.url.path.endswith("/settle_upload_attempt"):
+            state["events"].append(request.url.path)
+            data = simplejson.loads(request.content)
+            assert data["p_status"] == "completed"
+            state["journal"]["status"] = "completed"
+            state["journal"]["receipt"] = state["receipt"]
+            return httpx.Response(200, json=state["journal"])
         state["events"].append(request.url.path)
         if request.url.path.endswith("/reserve_source_upload_at_generation"):
             values = (
@@ -72,15 +95,13 @@ def real_upload():
         assert request.url.path.endswith("/finalize_bank_statement")
         values = simplejson.loads(request.content, use_decimal=True)
         state["parsed"].append(values["p_parsed_json"])
-        return httpx.Response(
-            200,
-            json={
-                "workspace_id": values["p_workspace_id"],
-                "document_id": values["p_document_id"],
-                "status": "parsed",
-                "transaction_count": len(values["p_parsed_json"]["transactions"]),
-            },
-        )
+        state["receipt"] = {
+            "workspace_id": values["p_workspace_id"],
+            "document_id": values["p_document_id"],
+            "status": "parsed",
+            "transaction_count": len(values["p_parsed_json"]["transactions"]),
+        }
+        return httpx.Response(200, json=state["receipt"])
 
     async def connection():
         async with httpx.AsyncClient(
@@ -142,9 +163,11 @@ def test_real_parser_to_atomic_save_preserves_source_and_exact_values(
     assert parsed["transactions"][0]["credit"] == Decimal("5000")
     assert state["source"] == content
     assert [path.split("/")[-1] for path in state["events"]] == [
+        "create_upload_attempt",
         "reserve_source_upload_at_generation",
         f"source.{kind}",
         "finalize_bank_statement",
+        "settle_upload_attempt",
     ]
     assert "file_path" not in response.text
 

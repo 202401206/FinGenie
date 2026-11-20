@@ -2,7 +2,7 @@
 
 from datetime import UTC, date, datetime
 from typing import Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import simplejson
 from pydantic import BaseModel
@@ -17,6 +17,7 @@ from app.db.errors import (
 )
 from app.db.parsed_models import ParsedBankStatement, ParsedSaveReceipt
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
+from app.db.repositories.upload_attempts import UploadAttemptNotFound
 from app.db.repositories.workspaces import WorkspaceRepository
 from app.parsers.errors import BankStatementParserError
 from app.schemas.upload_responses import UploadResponse
@@ -30,6 +31,7 @@ from app.services.source_errors import (
     SourceUnavailable,
 )
 from app.services.source_models import SourceAttempt, SourceReservation
+from app.services.upload_attempts import UploadAttemptService
 from app.services.upload_recovery import UploadRecoveryService
 from app.services.upload_validation import (
     DEFAULT_POLICY,
@@ -54,10 +56,13 @@ class UploadProcessingError(Exception):
         code: str,
         message: str,
         attempt: SourceAttempt | None = None,
+        *,
+        attempt_id: UUID | None = None,
     ):
         self.status_code = status_code
         self.code = code
         self.attempt = attempt
+        self.attempt_id = attempt_id
         super().__init__(message)
 
 
@@ -151,6 +156,7 @@ class UploadService:
         workspace_repository: WorkspaceRepository,
         *,
         policy: UploadPolicy = DEFAULT_POLICY,
+        attempts: UploadAttemptService | None = None,
     ):
         self.parser = parser
         self.access = access
@@ -158,6 +164,7 @@ class UploadService:
         self.recovery = recovery
         self.workspace_repository = workspace_repository
         self.policy = policy
+        self.attempts = attempts
 
     async def process(
         self, file: UploadReader, *, user_type: str, document_type: str
@@ -189,6 +196,43 @@ class UploadService:
             ) from None
         parsed = validate_parsed(model, attempt, self.policy)
 
+        attempt_id = uuid4() if self.attempts is not None else None
+        if self.attempts is not None:
+            try:
+                await self.attempts.prepare(attempt, parsed, attempt_id=attempt_id)
+            except SourceUnauthorized:
+                raise UploadProcessingError(
+                    401,
+                    "unauthorized",
+                    "A valid access token is required.",
+                    attempt,
+                    attempt_id=attempt_id,
+                ) from None
+            except SourceConflict:
+                raise UploadProcessingError(
+                    409,
+                    "upload_conflict",
+                    "Upload context conflicts with current state.",
+                    attempt,
+                    attempt_id=attempt_id,
+                ) from None
+            except ParsedDocumentRejected:
+                raise UploadProcessingError(
+                    422,
+                    "invalid_parsed_document",
+                    "Upload context was rejected.",
+                    attempt,
+                    attempt_id=attempt_id,
+                ) from None
+            except SourceUnavailable:
+                raise UploadProcessingError(
+                    503,
+                    "reconciliation_required",
+                    "Upload context could not be confirmed.",
+                    attempt,
+                    attempt_id=attempt_id,
+                ) from None
+
         reservation = None
         try:
             reservation = await self.access.reservations.reserve(attempt)
@@ -202,7 +246,7 @@ class UploadService:
             )
         except SourceOutcomeUnknown as error:
             # This subclass must precede SourceUnavailable. Recovery decides state.
-            return await self.recover(attempt, parsed, reservation, error)
+            return await self.recover(attempt, parsed, reservation, error, attempt_id)
         except (
             SourceUnauthorized,
             SourceTooLarge,
@@ -212,7 +256,24 @@ class UploadService:
             WorkspaceNotFound,
             UnsupportedDocumentType,
         ) as error:
-            return await self.recover(attempt, parsed, reservation, error)
+            return await self.recover(attempt, parsed, reservation, error, attempt_id)
+        if self.attempts is not None:
+            try:
+                await self.attempts.confirm_completed(attempt_id)
+            except (
+                SourceUnavailable,
+                SourceUnauthorized,
+                SourceConflict,
+                UploadAttemptNotFound,
+            ):
+                # The save already succeeded. Preserve it and its source on uncertainty.
+                raise UploadProcessingError(
+                    503,
+                    "reconciliation_required",
+                    "Saved upload confirmation needs follow-up.",
+                    attempt,
+                    attempt_id=attempt_id,
+                ) from None
         return UploadResponse(
             workspace=reservation.workspace,
             document={"id": receipt.document_id, "status": receipt.status},
@@ -224,30 +285,47 @@ class UploadService:
         parsed: dict[str, object],
         reservation: SourceReservation | None,
         error: Exception,
+        attempt_id: UUID | None = None,
     ) -> UploadResponse:
         try:
-            result = await self.recovery.recover(attempt, parsed)
+            result = (
+                await self.attempts.recover(attempt_id)
+                if self.attempts is not None
+                else await self.recovery.recover(attempt, parsed)
+            )
         except (
             SourceOutcomeUnknown,
             SourceUnavailable,
             SourceUnauthorized,
             SourceConflict,
+            UploadAttemptNotFound,
         ):
             raise UploadProcessingError(
                 503,
                 "reconciliation_required",
                 "Upload completion could not be confirmed.",
                 attempt,
+                attempt_id=attempt_id,
             ) from None
         if result.status == "cleaned":
-            raise original_failure(error, attempt) from None
+            failure = original_failure(error, attempt)
+            failure.attempt_id = attempt_id
+            raise failure from None
         if result.status == "pending":
             if result.reason == "auth_required":
                 raise UploadProcessingError(
-                    401, "unauthorized", "A valid access token is required.", attempt
+                    401,
+                    "unauthorized",
+                    "A valid access token is required.",
+                    attempt,
+                    attempt_id=attempt_id,
                 )
             raise UploadProcessingError(
-                503, result.reason, "Upload recovery needs follow-up.", attempt
+                503,
+                result.reason,
+                "Upload recovery needs follow-up.",
+                attempt,
+                attempt_id=attempt_id,
             )
         try:
             receipt = checked_receipt(result.receipt, attempt, parsed)
@@ -257,6 +335,7 @@ class UploadService:
                 "reconciliation_required",
                 "Upload completion could not be confirmed.",
                 attempt,
+                attempt_id=attempt_id,
             ) from None
         if reservation is None:
             try:
@@ -269,6 +348,7 @@ class UploadService:
                     "upload_unavailable",
                     "Saved workspace details are unavailable.",
                     attempt,
+                    attempt_id=attempt_id,
                 ) from None
             workspace = details.workspace
             if (
@@ -282,6 +362,7 @@ class UploadService:
                     "reconciliation_required",
                     "Saved workspace details could not be confirmed.",
                     attempt,
+                    attempt_id=attempt_id,
                 )
         else:
             workspace = reservation.workspace

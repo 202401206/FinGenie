@@ -102,5 +102,21 @@ separate reviewed step; embedded tests do not replace actual Storage verificatio
 The balance recovery migration adds a reconciliation RPC only, with no new table
 or status. Completed balances must match full expected JSON/metadata, have a
 registered canonical source and zero transaction rows. Unfinished attempts reuse
-existing cancellation and failed-source release rules. No upload-attempt journal
-or public attempt endpoint is added; those remain A4/P4 scope.
+existing cancellation and failed-source release rules.
+
+## Durable upload-attempt journal
+
+P4 adds upload_attempts with an attempt UUID, verified owner, original workspace
+and document UUIDs, generation, user/document type, source kind/name/filename,
+expected parsed JSON, status, safe error code, optional verified receipt,
+revision and timestamps. It has no workspace FK because it is created before
+reservation and survives unsuccessful metadata cleanup. Owner RLS, narrow column
+grants and evidence triggers protect immutable context and state transitions.
+
+Pending, completed, cleaned and needs_review are journal states, not new document
+statuses. Completion rechecks the saved snapshot/source; cleanup requires
+cancellation and verified absence. Context remains until owner financial-data
+deletion, which also handles journal-only attempts and retains the separate
+cancellation/generation protections. There is no token storage or automatic worker.
+Public upload-attempt HTTP routes remain A4. See
+[internal handoff](sprint-2-upload-attempt-handoff.md) for exact interfaces.
