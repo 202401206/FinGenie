@@ -5,6 +5,13 @@ from app.analysis.bank_kpis import analyze_bank_statement
 from app.db.parsed_read_models import ParsedBalanceSheet, ParsedDocumentContext
 from app.schemas.analysis_responses import WorkspaceAnalysisResponse
 
+BALANCE_REFERENCE_REASONS = (
+    "prior_period_value",
+    "reported_subtotal",
+    "unrecognized_note",
+    "repeated_reported_value",
+)
+
 
 def build_workspace_analysis(
     context: ParsedDocumentContext,
@@ -24,13 +31,13 @@ def build_workspace_analysis(
 
         # These two KPIs sum classified current items. An empty section or
         # unresolved line cannot establish a complete current-assets/liabilities sum.
-        # The parser retains prior-period values for reference alongside current rows.
+        # The parser also retains reference rows that do not change the current totals.
         current_items = statement.assets.current + statement.liabilities.current
         incomplete_current = (
             not statement.assets.current
             or not statement.liabilities.current
             or any(
-                item.get("reason") != "prior_period_value"
+                item.get("reason") not in BALANCE_REFERENCE_REASONS
                 for item in statement.unmapped
             )
             or any(

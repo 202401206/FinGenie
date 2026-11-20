@@ -12,6 +12,7 @@ from fastapi.routing import APIRoute
 
 from app.core.security import unauthorized
 from app.db.repositories.upload_attempts import UploadAttemptNotFound
+from app.schemas.error_responses import UploadErrorResponse
 from app.schemas.upload_attempt_responses import (
     RecoverUploadRequest,
     UploadAttemptPage,
@@ -50,8 +51,29 @@ class UploadAttemptRoute(APIRoute):
 
 
 router = APIRouter(
-    prefix="/upload-attempts", tags=["upload"], route_class=UploadAttemptRoute
+    prefix="/upload-attempts",
+    tags=["upload"],
+    route_class=UploadAttemptRoute,
+    responses={
+        401: {"model": UploadErrorResponse, "description": "Authentication required."},
+        409: {
+            "model": UploadErrorResponse,
+            "description": "Upload attempt state conflict.",
+        },
+        422: {
+            "model": UploadErrorResponse,
+            "description": "Invalid ID, pagination, or recovery request.",
+        },
+        503: {
+            "model": UploadErrorResponse,
+            "description": "Attempt state unavailable or recovery pending.",
+        },
+    },
 )
+ATTEMPT_NOT_FOUND = {
+    "model": UploadErrorResponse,
+    "description": "Upload attempt not found.",
+}
 Attempts = Annotated[UploadAttemptService, Depends(get_upload_attempt_service)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
@@ -105,7 +127,11 @@ async def list_upload_attempts(
     return UploadAttemptPage.model_validate(page, from_attributes=True)
 
 
-@router.get("/{attempt_id}", response_model=UploadAttemptSummary)
+@router.get(
+    "/{attempt_id}",
+    response_model=UploadAttemptSummary,
+    responses={404: ATTEMPT_NOT_FOUND},
+)
 async def get_upload_attempt(
     attempt_id: UUID, attempts: Attempts
 ) -> UploadAttemptSummary:
@@ -113,7 +139,11 @@ async def get_upload_attempt(
         return await attempts.journal.get_summary(attempt_id)
 
 
-@router.post("/{attempt_id}/recover", response_model=UploadRecoveryResponse)
+@router.post(
+    "/{attempt_id}/recover",
+    response_model=UploadRecoveryResponse,
+    responses={404: ATTEMPT_NOT_FOUND},
+)
 async def recover_upload_attempt(
     attempt_id: UUID, attempts: Attempts, body: RecoverUploadRequest
 ) -> UploadRecoveryResponse:

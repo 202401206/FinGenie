@@ -13,6 +13,7 @@ from app.api.workspace_dependencies import (
     workspace_errors,
 )
 from app.schemas.analysis_responses import WorkspaceAnalysisResponse
+from app.schemas.error_responses import ErrorResponse
 from app.schemas.workspace_responses import (
     TransactionPageResponse,
     WorkspaceDetailsResponse,
@@ -69,7 +70,16 @@ async def list_transactions(
     )
 
 
-@router.get("/{id}/analysis", response_model=WorkspaceAnalysisResponse)
+@router.get(
+    "/{id}/analysis",
+    response_model=WorkspaceAnalysisResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Authentication required."},
+        404: {"model": ErrorResponse, "description": "Workspace not found."},
+        409: {"model": ErrorResponse, "description": "Parsed document is not ready."},
+        503: {"model": ErrorResponse, "description": "Workspace data is unavailable."},
+    },
+)
 async def get_workspace_analysis(id: UUID, repository: Repository) -> Response:
     context = await read_owned_document(id, repository)
     payload = build_workspace_analysis(context)

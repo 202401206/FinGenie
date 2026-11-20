@@ -1055,3 +1055,128 @@ def test_uploaded_document_feeds_owned_summary(
     (messages,) = calls
     assert document_id not in messages[1]["content"]
     assert "Synthetic" not in messages[1]["content"]
+
+
+@pytest.mark.parametrize(
+    "kind,old,new,expected,metric_key",
+    [
+        (
+            "bank_statement",
+            b"Currency: INR,",
+            b"",
+            "insufficient_data",
+            "net_cash_flow",
+        ),
+        (
+            "bank_statement",
+            b"Closing Balance: 12500",
+            b"Closing Balance: 12900",
+            "unreliable",
+            "net_cash_flow",
+        ),
+        (
+            "balance_sheet",
+            b"Currency: INR,Scale: Lakhs",
+            b"",
+            "insufficient_data",
+            "working_capital",
+        ),
+        (
+            "balance_sheet",
+            b"Total Equity,180",
+            b"Total Equity,179",
+            "unreliable",
+            "working_capital",
+        ),
+        (
+            "balance_sheet",
+            b"Receivables,50",
+            b"Receivables,50\nUnknown asset,10",
+            "insufficient_data",
+            "working_capital",
+        ),
+    ],
+)
+def test_uploaded_document_with_input_gaps_blocks_summary(
+    api_database_client, monkeypatch, kind, old, new, expected, metric_key
+):
+    client, server = api_database_client
+
+    async def unexpected_summary(*args):
+        pytest.fail("An incomplete or unreliable document reached summary generation.")
+
+    monkeypatch.setattr("app.api.routes.ai.generate_summary", unexpected_summary)
+    content = layout_bytes("a", "csv", document_type=kind)
+    assert old in content
+    content = content.replace(old, new, 1)
+    upload = statement_upload(
+        client,
+        content,
+        user_type="business" if kind == "balance_sheet" else "personal",
+        document_type=kind,
+    )
+    assert upload.status_code == 201, upload.text
+    saved = upload.json()
+    url = f"/api/workspaces/{saved['workspace']['id']}"
+    headers = {"Authorization": "Bearer token-a"}
+
+    analysis = client.get(f"{url}/analysis", headers=headers)
+    assert analysis.status_code == 200, analysis.text
+    result = json.loads(analysis.content, parse_float=Decimal)
+    assert result["workspace_id"] == saved["workspace"]["id"]
+    assert result["document_type"] == kind
+    assert result["reliability"] == expected
+    assert result["warnings"]
+    metric = next(metric for metric in result["metrics"] if metric["key"] == metric_key)
+    if expected == "insufficient_data":
+        assert metric["status"] == "unavailable"
+        assert metric["value"] is None and metric["reason"]
+    else:
+        assert metric["status"] == "available"
+        assert metric["source_refs"][0]["document_id"] == saved["document"]["id"]
+        assert metric["value"] == (2500 if kind == "bank_statement" else 7_000_000)
+    if old.startswith(b"Currency:"):
+        details = client.get(url, headers=headers)
+        assert details.status_code == 200
+        assert details.json()["documents"][0]["currency"] is None
+
+    summary = client.post(f"{url}/summary", headers=headers, json={})
+    assert summary.status_code == 409
+    assert summary.json()["detail"]["code"] == "analysis_not_ready"
+    assert list(server.files.values()) == [content]
+
+
+def test_balance_reference_rows_preserve_current_metrics(api_database_client):
+    client, server = api_database_client
+    content = (
+        layout_bytes("a", "csv", document_type="balance_sheet")
+        .replace(
+            b"Receivables,50", b"Receivables,50\nTotal Current Assets,150\nUnaudited,"
+        )
+        .replace(b"Total Assets,300", b"Total Assets,300\nTotal Assets,300")
+    )
+    uploaded = statement_upload(
+        client, content, user_type="business", document_type="balance_sheet"
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    saved = uploaded.json()
+    documents = server.query(
+        "select parsed_json->'unmapped' as unmapped from public.documents where id=$1::uuid",
+        [saved["document"]["id"]],
+        OWNER,
+    )["rows"]
+    assert {item["reason"] for item in documents[0]["unmapped"]} == {
+        "reported_subtotal",
+        "unrecognized_note",
+        "repeated_reported_value",
+    }
+    analysis = client.get(
+        f"/api/workspaces/{saved['workspace']['id']}/analysis",
+        headers={"Authorization": "Bearer token-a"},
+    )
+    assert analysis.status_code == 200, analysis.text
+    result = json.loads(analysis.content, parse_float=Decimal)
+    assert result["reliability"] == "valid"
+    metrics = {metric["key"]: metric["value"] for metric in result["metrics"]}
+    assert metrics["working_capital"] == 7_000_000
+    assert metrics["current_ratio"] == Decimal("1.875")

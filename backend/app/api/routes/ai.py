@@ -14,6 +14,7 @@ from app.ai.providers.groq_provider import (
 from app.ai.summary import generate_summary
 from app.api.workspace_dependencies import Repository, read_owned_document
 from app.schemas.common import DocumentType
+from app.schemas.error_responses import ErrorResponse
 from app.schemas.requests import ChatRequest
 from app.schemas.responses import ChatResponse, SummaryResponse
 from app.services.workspace_analysis import build_workspace_analysis
@@ -117,7 +118,27 @@ def _handle_provider_error(exc: GroqError) -> HTTPException:
     )
 
 
-@router.post("/{workspace_id}/summary", response_model=SummaryResponse)
+@router.post(
+    "/{workspace_id}/summary",
+    response_model=SummaryResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Authentication required."},
+        404: {"model": ErrorResponse, "description": "Workspace not found."},
+        409: {
+            "model": ErrorResponse,
+            "description": "Document or required metrics are not ready.",
+        },
+        429: {"model": ErrorResponse, "description": "AI rate limit reached."},
+        502: {
+            "model": ErrorResponse,
+            "description": "Provider or numeric verification failed.",
+        },
+        503: {
+            "model": ErrorResponse,
+            "description": "Workspace data or provider unavailable.",
+        },
+    },
+)
 async def get_summary_endpoint(
     workspace_id: UUID,
     repository: Repository,

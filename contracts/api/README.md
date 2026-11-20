@@ -176,6 +176,8 @@ filters can be proposed when their UI is designed; none are promised here.
 
 ## Sprint 2: analysis and summary
 
+See the [Sprint 2 frontend handoff](../../docs/sprint-2-api-handoff.md) for request examples and local verification.
+
 `GET /api/workspaces/{id}/analysis`: no body. 200 body matches
 [bank analysis](../examples/financial-analysis.json) or
 [balance-sheet analysis](../examples/balance-sheet-analysis.json).
@@ -186,7 +188,9 @@ the deterministic analysis functions.
 Unreliable parsed data produces explicit reliability/warnings and unavailable
 metrics where necessary. Balance sheets with unknown currency or scale withhold
 monetary values and ratios. Unresolved classifications or missing current amounts
-withhold working capital and current ratio. Unparsed/failed workspaces return 409 `document_not_ready`.
+withhold working capital and current ratio. Prior periods, reported subtotals,
+nonfinancial notes, and repeated matching totals stay in the source record.
+Unparsed or failed workspaces return 409 `document_not_ready`.
 
 `POST /api/workspaces/{id}/summary`: JSON request `{}`. Returns a nonstreaming,
 validated summary of the signed-in user's saved document. Only verified metrics
