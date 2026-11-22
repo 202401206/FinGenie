@@ -112,7 +112,7 @@ The IDs beginning with NG refer to Number Guard, BK to bank analytics and BS to 
 
 ## 9. Overall verification
 
-After adding the boundary test and the security tests described in the companion report, the full backend suite passed with **887 tests and zero skips**. The run reported one existing library deprecation warning. Lint and formatting checks passed for the four new Python files.
+After adding the boundary test and the security tests described in the companion report, the full backend suite passed with **901 tests and zero skips**. The run reported one existing library deprecation warning. Lint and formatting checks passed for the five added Python files.
 
 The selected mutation campaign demonstrates sensitivity to the listed faults. Further checks are needed to evaluate other fault types, deployed services and behavior with real uploaded documents.
 
@@ -130,14 +130,18 @@ Then, from the `backend` folder, run the following commands in order.
 
 ```sh
 python -m pip install -r requirements-dev.txt
-python -m scripts.run_mutation_testing
-python -m scripts.run_mutation_testing --include-regressions
+python -m scripts.run_mutation_testing --output ../docs/testing-evidence/mutation-initial-new.json
+python -m scripts.run_mutation_testing --include-regressions --baseline ../docs/testing-evidence/mutation-initial-new.json --output ../docs/testing-evidence/mutation-final-new.json
 python -m pytest -q
 ```
 
-The first mutation command reproduces the initial campaign. The second adds the boundary regression and retains the initial results in the evidence file. Each mutation has a 60-second test-run limit. The selected tests cover Number Guard and both analytics modules.
+The first mutation command reproduces the initial campaign. The second adds the boundary regression and includes the explicitly supplied baseline in its evidence file. The runner checks that both campaigns used the same source hashes before combining them. Each mutation has a 60-second test-run limit. The selected tests cover Number Guard and both analytics modules.
 
-The saved evidence contains the exact source changes, original source hashes, failed test names and test output.
+A follow-up verification on 23 November 2026 reran both campaigns after hardening the runner. The results remained 15/16 initially and 16/16 with the boundary regression. Before each execution, the runner removes the previous JUnit result. Missing or malformed results are classified as invalid. This prevents an earlier failure from being counted against a later mutation.
+
+Every run writes a timestamped file by default. The optional output path must identify a new file, preserving earlier evidence. Additional runner tests cover stale results, malformed output and overwrite protection.
+
+The saved evidence contains the exact source changes, original source hashes, failed test names and test output. Its Git revision identifies the checkout used for revalidation. The production source hashes identify the financial code tested.
 
 - [Mutation runner](../backend/scripts/run_mutation_testing.py)
 - [New boundary test](../backend/tests/ai/test_number_guard_mutation_regression.py)

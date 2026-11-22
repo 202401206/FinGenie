@@ -113,13 +113,29 @@ The numeric safeguards rejected six tested incorrect or unsupported outputs. Fur
 
 A separate reliability issue concerns replies cut off by the provider. The correction-retry path in the tested revision ignores the provider's completion status. The review of PR #7 raised this remaining gap after checks were added for initial replies.
 
-## 9. Overall verification
+## 9. Runner corrections and follow-up verification
 
-After adding the security tests and the boundary test described in the mutation report, the full backend suite passed with **887 tests and zero skips**. The run reported one existing library deprecation warning. Lint and formatting checks passed for the four new Python files.
+On 23 November 2026, the testing scripts were strengthened to make failures visible and protect saved evidence. Fourteen new regression cases cover these changes.
+
+- Live cases now record a pass, fail or inconclusive verdict. An unsupported numeric answer causes a failed verdict. Chat passes require either the exact requested refusal or the exact calculated credit answer with its calculation ID. Other wording requires manual review and is recorded as inconclusive.
+- Summary verdicts check numeric support against the executed tools. The existing metric-label limitation described in Section 6 still applies to free-form summaries.
+- Provider errors are recorded separately from validation rejections. Every attempted call retains its elapsed time. The results include latency for all summary attempts, latency for returned summaries and the fraction of summary calls that returned an answer.
+- The command exits with code 1 for a failed check and code 2 for an incomplete or inconclusive live run. Code 0 means the checks requested for that run completed successfully. A local-only run reports that live checks were not requested.
+- New timestamped output files and refusal to overwrite existing paths preserve historical measurements.
+
+The original live responses in Section 7 are historical observations from the first run. They were not relabelled using the revised verdict rules. The changed live prompts and verdict logic were verified with scripted providers. A further live run is needed to measure those revised prompts against Groq.
+
+The local follow-up also tested an answer containing **1,000 repeated INR amounts in 18,000 characters**, using 50 measured executions after five warm-up calls. Its median was **252.3272 ms**, p95 was **270.9883 ms**, and maximum was **368.0420 ms**. This input took substantially longer than the single-amount padded inputs, showing that both answer length and the number of amounts affect validation time. The follow-up local evidence records this case and fresh measurements of the earlier local workloads. The original live measurements remain in their original evidence file.
+
+Repeated live attacks and concurrent-user tests remain outside these measurements.
+
+## 10. Overall verification
+
+After adding the security tests and the boundary test described in the mutation report, the full backend suite passed with **901 tests and zero skips**. The run reported one existing library deprecation warning. Lint and formatting checks passed for the five added Python files.
 
 The local database component tests ran using PGlite, the project's local PostgreSQL test package. Browser performance, simultaneous-user load and hosted Supabase deployment validation remain outside this experiment.
 
-## 10. Technical details and reproduction
+## 11. Technical details and reproduction
 
 Testing used Python 3.14.6 on macOS ARM64 on 22 November 2026. The tested revision was `9580ca0dcdee8ebe28753a5c4439a36340040b9d`.
 
@@ -144,11 +160,13 @@ For live measurements, supply a local environment file containing the Groq API k
 python -m scripts.run_non_functional_testing --live --env-file /absolute/path/to/backend/.env
 ```
 
-The live command runs three summary operations and three adversarial chat conversations. Tool calls and corrections can require multiple provider requests. Results are written to the evidence file below. A local-only rerun replaces its live-results section, so preserve the submitted evidence when comparing experiments.
+The live command runs three summary operations and three adversarial chat conversations. Tool calls and corrections can require multiple provider requests. Each run writes a new timestamped evidence file. Use `--output /path/to/new-results.json` to choose its location. The runner refuses an existing path, which protects earlier live measurements.
 
 The p95 calculation uses the nearest-rank method. For the three live summary samples, p95 equals the slowest measurement. The saved evidence includes the exact timings and synthetic AI responses.
 
 - [Performance and security runner](../backend/scripts/run_non_functional_testing.py)
 - [Security tests](../backend/tests/ai/test_non_functional_security.py)
+- [Runner regression tests](../backend/tests/ai/test_testing_runners.py)
+- [Follow-up local measurements](testing-evidence/non-functional-local-followup.json)
 - [Measurements and live responses](testing-evidence/non-functional-results.json)
 - [Full backend test output](testing-evidence/backend-tests.txt)

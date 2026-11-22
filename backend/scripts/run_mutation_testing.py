@@ -123,12 +123,21 @@ MUTATIONS = [
 ]
 
 
-def run_suite(backend, env):
+def run_suite(backend, env, tests_to_run=None):
     junit = backend / "mutation-junit.xml"
+    junit.unlink(missing_ok=True)
     started = time.perf_counter()
     try:
         result = subprocess.run(
-            [sys.executable, "-B", "-m", "pytest", *TESTS, "-q", f"--junitxml={junit}"],
+            [
+                sys.executable,
+                "-B",
+                "-m",
+                "pytest",
+                *(tests_to_run or TESTS),
+                "-q",
+                f"--junitxml={junit}",
+            ],
             cwd=backend,
             env=env,
             capture_output=True,
@@ -137,7 +146,10 @@ def run_suite(backend, env):
         )
     except subprocess.TimeoutExpired:
         return {"status": "timeout", "seconds": round(time.perf_counter() - started, 3)}
-    tests = ET.parse(junit).getroot() if junit.exists() else None
+    try:
+        tests = ET.parse(junit).getroot() if junit.exists() else None
+    except ET.ParseError:
+        tests = None
     failures = (
         []
         if tests is None
@@ -148,7 +160,11 @@ def run_suite(backend, env):
         ]
     )
     errors = [] if tests is None else list(tests.iter("error"))
-    status = "survived" if result.returncode == 0 else "invalid"
+    status = (
+        "survived"
+        if result.returncode == 0 and tests is not None and not errors
+        else "invalid"
+    )
     if result.returncode == 1 and failures and not errors:
         status = "killed"
     return {
@@ -163,14 +179,22 @@ def run_suite(backend, env):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--include-regressions", action="store_true")
-    args = parser.parse_args()
-    initial = (
-        json.loads(OUTPUT.read_text())
-        if args.include_regressions and OUTPUT.exists()
-        else None
+    parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--baseline", type=Path, help="Optional initial campaign to compare against"
     )
+    args = parser.parse_args()
+    initial = json.loads(args.baseline.read_text()) if args.baseline else None
+    tests = list(TESTS)
     if args.include_regressions:
-        TESTS.append("tests/ai/test_number_guard_mutation_regression.py")
+        tests.append("tests/ai/test_number_guard_mutation_regression.py")
+    output = args.output or OUTPUT.with_name(
+        f"mutation-results-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    )
+    if output.exists():
+        parser.error(
+            "Output already exists. Choose a new path to preserve earlier evidence."
+        )
     env = {
         key: value
         for key, value in os.environ.items()
@@ -196,7 +220,7 @@ def main():
         shutil.copytree(ROOT / "contracts", sandbox / "contracts")
         shutil.copy2(BACKEND / "pyproject.toml", sandbox / "backend/pyproject.toml")
         backend = sandbox / "backend"
-        baseline = run_suite(backend, env)
+        baseline = run_suite(backend, env, tests)
         if baseline["status"] != "survived":
             raise RuntimeError(f"Unmodified baseline failed: {baseline}")
         for identifier, operator, source, original, replacement in MUTATIONS:
@@ -208,7 +232,7 @@ def main():
                 )
             try:
                 path.write_text(contents.replace(original, replacement, 1))
-                result = run_suite(backend, env)
+                result = run_suite(backend, env, tests)
             finally:
                 path.write_text(contents)
             result.update(
@@ -229,7 +253,7 @@ def main():
         "python": platform.python_version(),
         "platform": platform.platform(),
         "campaign": "16 explicitly selected first-order mutants; no exhaustive mutation claim",
-        "tests": TESTS,
+        "tests": tests,
         "baseline": baseline,
         "counts": dict(counts),
         "mutation_score_percent": round(100 * counts["killed"] / executable, 2)
@@ -238,10 +262,18 @@ def main():
         "results": results,
     }
     if initial is not None:
-        report["initial_campaign"] = initial.get("initial_campaign", initial)
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"Evidence written to {OUTPUT}")
+        previous = initial.get("initial_campaign", initial)
+        previous_hashes = {
+            row["id"]: row["source_sha256"] for row in previous["results"]
+        }
+        current_hashes = {row["id"]: row["source_sha256"] for row in results}
+        if previous_hashes != current_hashes:
+            raise ValueError("Baseline source hashes differ from this campaign.")
+        report["initial_campaign"] = previous
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("x") as stream:
+        stream.write(json.dumps(report, indent=2) + "\n")
+    print(f"Evidence written to {output}")
     return int(bool(counts["invalid"] or counts["timeout"]))
 
 
