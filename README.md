@@ -7,6 +7,11 @@ and an AI assistant. Sprint 1 backend work has started.
 `GET /api/me`, and the initial Supabase tables, ownership policies and private bucket.
 The backend also has user-scoped workspace/transaction read repositories for
 connecting the upcoming routes; see [database access](backend/app/db/README.md).
+Private source upload/removal helpers and a metadata reservation migration are
+prepared for the upload service; see [source uploads](backend/app/services/source-uploads.md).
+An atomic bank-statement save repository and local migration are also available;
+see [parsed persistence](backend/app/db/parsed-documents.md). Full upload integration
+is still pending.
 **Planned:** CSV/XLSX upload, Python parsing, deterministic financial calculations,
 dashboards, summaries, chat and bank-statement projections. Personal users may
 upload bank statements; business users may also upload balance sheets.

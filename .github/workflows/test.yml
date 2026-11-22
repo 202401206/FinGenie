@@ -1,0 +1,29 @@
+﻿name: FinGenie CI Suite
+
+on:
+  push:
+    branches: [ master, main, '**' ]
+  pull_request:
+    branches: [ master, main, '**' ]
+
+jobs:
+  test:
+    name: Frontend Verification Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Clean Install, Tests, Lint, and Production Build
+        run: |
+          cd frontend
+          npm ci
+          npm test
+          npm run lint
+          npm run build

@@ -50,6 +50,14 @@ Supabase Auth owns passwords and login; no custom password table or login API.
 
 No analysis/AI persistence tables are proposed yet. Foreign keys restrict parent
 deletion; agree retention and file cleanup before adding deletion endpoints.
-Storage policies are ready, but upload services, failed-upload compensation and
-atomic persistence of `parsed_json` plus transaction rows remain separate work.
+The persistence branch adds metadata reservation, private source helpers, atomic
+parsed-data save and [controlled recovery](../backend/app/services/upload-recovery.md).
+The follow-up recovery migration adds `upload_cancellations` with owner, workspace
+and document UUIDs plus a timestamp. Its `(user_id, workspace_id)` primary key
+records cancelled attempts after their metadata is removed, blocking late writes.
+Owner RLS allows select/insert only; ordinary clients cannot update/delete these
+records. Retention and account deletion need an explicit reviewed policy.
+Storage INSERT additionally requires the matching pending document and no
+cancellation. Reads/deletes retain their owner-prefix rules. The API/parser
+owners still need to connect their public workflows to these helpers.
 Never publish real financial data in migrations, seed files, fixtures or logs.

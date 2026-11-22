@@ -121,3 +121,43 @@ Foreign keys currently restrict parent deletion. Before adding deletion endpoint
 agree retention and cleanup: deleting metadata alone never removes Storage bytes.
 Frontend owns signup/login UI and session refresh. AI + Analysis owns calculations.
 Review the new `/api/me` contract with Frontend before integrating it.
+
+## Follow-up: source metadata and private files
+
+The persistence branch adds a local `reserve_source_upload` migration and
+request-scoped Storage upload/removal helpers. See the
+[source upload integration guide](../backend/app/services/source-uploads.md).
+Review/apply the new migration separately before live use; this work does not
+reapply the initial migration or alter hosted bucket/Auth settings.
+
+The updated Python suite has 123 passing tests. Both SQL ownership scripts were
+executed locally using embedded PostgreSQL and a minimal Supabase schema scaffold;
+fixture rows rolled back. Full Docker Supabase replay and actual Storage file
+operations were not exercised in that local SQL test. Final parsed-data writes,
+metadata compensation and complete upload orchestration remain upcoming work.
+
+## Follow-up: atomic parsed-data save
+
+The persistence branch now also prepares `finalize_bank_statement` and its
+authenticated Python repository. It saves validated bank JSON, document metadata
+and transaction rows atomically after confirming the registered source. See
+[parsed-data persistence](../backend/app/db/parsed-documents.md). The latest local
+suite has 160 passing Python tests; all three rollback SQL suites pass locally.
+Neither new migration has been deployed to the shared project by this work.
+The API/parser owners still need to connect the complete public upload workflow.
+
+## Follow-up: interrupted upload recovery
+
+The final persistence work package adds
+[upload recovery](../backend/app/services/upload-recovery.md), a cancellation guard
+for late writes, and a reproducible [local SQL/component test runner](../supabase/tests/README.md).
+The full current suite has 218 passing Python tests, including eight component
+integration cases. Four rollback SQL suites pass locally. Older counts above
+describe the checks at those earlier milestones.
+
+`20261101190235_upload_recovery.sql` is prepared locally. It and the earlier
+reservation/finalization migrations require review/application before hosted use.
+No hosted migration, advisor run against the new schema, real Storage operation,
+Docker replay or browser upload was performed for this package. Local SQL checks
+cover grants, RLS, anonymous rejection, cancellation and rollback. A hosted advisor
+check and the live API/parser/two-user demo remain deployment/integration checks.
