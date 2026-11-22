@@ -6,6 +6,7 @@ import { TransactionHistoryPage } from './features/transactions/TransactionHisto
 import { TransactionDetailDrawer } from './features/transactions/TransactionDetailDrawer.jsx';
 import UploadPage from './features/upload/UploadPage.jsx';
 import SettingsPage from './features/settings/SettingsPage.jsx';
+import DashboardPage from './features/dashboard/DashboardPage.jsx';
 import AppLayout from './components/layout/AppLayout.jsx';
 import { getWorkspaceDetail, getWorkspaceTransactions } from './services/api.js';
 import { adaptTransactionList } from './utils/transactionAdapter.js';
@@ -362,9 +363,12 @@ export function App() {
 
       case 'dashboard':
         return (
-          <PlaceholderPage
-            title="Financial Dashboard"
-            description="Visual balance trends, income/expense distributions, and category breakdowns will appear here."
+          <DashboardPage
+            transactions={isDemoMode ? demoList : ledger.transactions}
+            documentMetadata={isDemoMode ? demoDocMeta : ledger.documentMetadata}
+            loading={ledger.loading}
+            error={ledger.error}
+            onNavigate={handleNavigate}
           />
         );
 
