@@ -38,3 +38,5 @@ samples/private/
 Thumbs.db
 
 # Keep package-lock.json tracked after the first manual npm install.
+
+.staged_docs_for_teammates/

@@ -63,13 +63,21 @@ async def _generate_bank_summary(
             {"role": "user", "content": prompt},
         ]
         response = await llm.generate(messages=messages, temperature=0.1)
-        summary_text = await verify_and_retry_text(
-            initial_text=response.content or "",
-            tool_results=tool_results,
-            messages=messages,
-            llm=llm,
-            max_retries=2,
-        )
+        if response.finish_reason == "length":
+            flow_word = "positive" if (net_val or 0) >= 0 else "negative"
+            summary_text = (
+                f"For this statement period, total deposits were {currency} {credit_val} and total "
+                f"withdrawals were {currency} {debit_val}, resulting in a {flow_word} net cash flow of "
+                f"{currency} {net_val}. The closing balance is {currency} {closing_val}."
+            )
+        else:
+            summary_text = await verify_and_retry_text(
+                initial_text=response.content or "",
+                tool_results=tool_results,
+                messages=messages,
+                llm=llm,
+                max_retries=2,
+            )
     else:
         # Deterministic offline template fallback
         flow_word = "positive" if (net_val or 0) >= 0 else "negative"
@@ -129,13 +137,19 @@ async def _generate_balance_sheet_summary(
             {"role": "user", "content": prompt},
         ]
         response = await llm.generate(messages=messages, temperature=0.1)
-        summary_text = await verify_and_retry_text(
-            initial_text=response.content or "",
-            tool_results=tool_results,
-            messages=messages,
-            llm=llm,
-            max_retries=2,
-        )
+        if response.finish_reason == "length":
+            summary_text = (
+                f"The balance sheet is reconciled and balanced. The business reports a working capital of "
+                f"{currency} {wc_res.value} with a current ratio of {cr_res.value}."
+            )
+        else:
+            summary_text = await verify_and_retry_text(
+                initial_text=response.content or "",
+                tool_results=tool_results,
+                messages=messages,
+                llm=llm,
+                max_retries=2,
+            )
     else:
         # Deterministic offline template fallback
         summary_text = (

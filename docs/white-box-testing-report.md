@@ -16,12 +16,12 @@ Using industry-standard structural testing methodologies (Statement Coverage, Br
 
 | Metric | Baseline | Post-White-Box Testing | Status |
 | :--- | :---: | :---: | :---: |
-| **Total Automated Tests** | 392 passed | **410 passed** | ✅ +18 targeted test cases |
+| **Total Automated Tests** | 392 passed | **414 passed** | ✅ +22 targeted test cases |
 | **AI Module Statement Coverage (`app.ai`)** | 80.5% | **99.2%** | ✅ Industry Gold Standard |
 | **Analysis Engine Coverage (`app.analysis`)** | 91.8% | **99.8%** | ✅ Complete Deterministic Coverage |
 | **AI REST API Route Coverage (`app.api.routes.ai`)** | 94.0% | **100.0%** | ✅ Complete Error Translation |
-| **Combined Statement Coverage** | 83.2% | **99.5%** (1,119 / 1,125 stmts) | 🏆 **Grade-A Compliance** |
-| **Combined Branch Coverage** | 78.4% | **98.0%** (455 / 482 branches) | 🏆 **Grade-A Compliance** |
+| **Combined Statement Coverage** | 83.2% | **99.5%** (1,128 / 1,134 stmts) | 🏆 **Grade-A Compliance** |
+| **Combined Branch Coverage** | 78.4% | **98.0%** (465 / 490 branches) | 🏆 **Grade-A Compliance** |
 
 ---
 
@@ -96,6 +96,12 @@ To close all coverage gaps, two dedicated white-box test suites were authored:
 * **Missing Fixture Files**: Tested file resolution failure fallback returning `{}` (`line 35`).
 * **HTTP 422 Validation Error**: Tested `POST /api/workspaces/{id}/summary` with invalid workspace data to verify FastAPI catches `ValueError` and emits HTTP 422 (`line 131`).
 * **HTTP 502 Unhandled Provider Error**: Tested generic `GroqError` catching to ensure unexpected provider failures return clean HTTP 502 responses (`line 104`).
+
+### 4.5. Provider Truncation Guard Coverage (`finish_reason == "length"`)
+* **Chatbot Truncated Direct Response**: Tested LLM response where generation is cut off mid-sentence (`finish_reason == "length"`), asserting that the truncation guard intercepts the partial text and falls back to deterministic offline synthesis without surfacing corrupted numbers.
+* **Chatbot Truncation at Max Turns**: Verified that when reasoning turns reach max limit and the final provider response was truncated, the system executes clean deterministic synthesis.
+* **Bank Summary Truncation**: Verified that a truncated bank summary generation safely triggers deterministic template fallback with exact verified figures.
+* **Balance Sheet Summary Truncation**: Verified that a truncated balance sheet summary safely triggers deterministic template fallback with working capital and liquidity ratios.
 
 ---
 

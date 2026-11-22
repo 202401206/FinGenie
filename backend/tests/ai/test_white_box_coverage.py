@@ -609,3 +609,152 @@ def test_routes_ai_summary_value_error_endpoint() -> None:
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_workspace_data"
+
+
+# ---------------------------------------------------------------------------
+# 10. Truncation Guard Coverage (finish_reason == 'length')
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_chatbot_truncated_provider_response_fallback() -> None:
+    """Ensure truncated provider response in direct answer falls back to safe offline answer."""
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    # finish_reason == 'length' triggers truncation guard
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Your total deposits for the period were INR 5000 and the net flow was...",
+            tool_calls=[],
+            finish_reason="length",
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    data = {
+        "currency": "INR",
+        "transactions": [
+            {
+                "date": "2026-01-01",
+                "description": "Salary",
+                "credit": 5000,
+                "debit": 0,
+                "balance": 5000,
+            }
+        ],
+    }
+
+    resp = await chat_with_workspace(
+        message="What are my credits?",
+        workspace_data=data,
+        provider=mock_llm,
+    )
+    assert resp.text.startswith("Your total credits")
+    assert "5000" in resp.text
+
+
+@pytest.mark.anyio
+async def test_chatbot_max_turns_truncated_fallback() -> None:
+    """Ensure truncated response at max reasoning turns triggers truncation fallback."""
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    # Returns tool call continuously until max_turns exceeded, with length finish_reason
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Calculated partially...",
+            tool_calls=[
+                ToolCall(
+                    id="call-1",
+                    name="bank_total_credit",
+                    arguments={},
+                )
+            ],
+            finish_reason="length",
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    data = {
+        "currency": "INR",
+        "transactions": [
+            {
+                "date": "2026-01-01",
+                "description": "Salary",
+                "credit": 5000,
+                "debit": 0,
+                "balance": 5000,
+            }
+        ],
+    }
+
+    resp = await chat_with_workspace(
+        message="What are my credits?",
+        workspace_data=data,
+        provider=mock_llm,
+        max_turns=1,
+    )
+    assert "5000" in resp.text
+
+
+@pytest.mark.anyio
+async def test_bank_summary_truncated_provider_response_fallback() -> None:
+    """Ensure truncated bank summary triggers deterministic template fallback."""
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Truncated summary...",
+            tool_calls=[],
+            finish_reason="length",
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    data = {
+        "currency": "INR",
+        "transactions": [
+            {
+                "date": "2026-01-01",
+                "description": "Salary",
+                "credit": 5000,
+                "debit": 1000,
+                "balance": 4000,
+            }
+        ],
+    }
+
+    resp = await generate_summary(data, provider=mock_llm)
+    assert "total deposits were INR 5000" in resp.text
+    assert "total withdrawals were INR 1000" in resp.text
+
+
+@pytest.mark.anyio
+async def test_balance_sheet_summary_truncated_provider_response_fallback() -> None:
+    """Ensure truncated balance sheet summary triggers deterministic template fallback."""
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Truncated balance sheet summary...",
+            tool_calls=[],
+            finish_reason="length",
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    data = {
+        "currency": "USD",
+        "unit_scale": 1,
+        "document_id": "bs-trunc",
+        "assets": {
+            "current": [{"line_item": "Cash", "value": 50000, "source_row": 1}],
+            "total": 100000,
+        },
+        "liabilities": {
+            "current": [{"line_item": "Payables", "value": 25000, "source_row": 2}],
+            "total": 50000,
+        },
+        "equity": {"total": 50000},
+    }
+
+    resp = await generate_summary(data, provider=mock_llm)
+    assert "The balance sheet is reconciled and balanced." in resp.text
+    assert "working capital of USD 25000" in resp.text

@@ -81,6 +81,8 @@ async def chat_with_workspace(
                 print(
                     f"  [Turn {turn}] Model synthesized answer directly without further tool calls."
                 )
+            if response.finish_reason == "length":
+                return _offline_chat_fallback(message, workspace_data)
             final_text = response.content or ""
             break
 
@@ -133,6 +135,8 @@ async def chat_with_workspace(
                 }
             )
     else:
+        if response.finish_reason == "length":
+            return _offline_chat_fallback(message, workspace_data)
         final_text = (
             response.content
             or "I could not complete the calculation within the allowed reasoning turns."
