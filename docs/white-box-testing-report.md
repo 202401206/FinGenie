@@ -12,16 +12,16 @@
 
 As part of the Software Engineering (IT314) White-Box Testing milestone, the AI + Analysis team conducted a comprehensive code coverage audit across all team-owned modules in `backend/app/ai/`, `backend/app/analysis/`, and `backend/app/api/routes/ai.py`.
 
-Using industry-standard structural testing methodologies (Statement Coverage, Branch/Decision Coverage, Basis Path Testing, and Negative Fault-Injection), our test suite was expanded from an 83% baseline to **99.5% Statement Coverage** and **98.0% Branch Coverage** across **410 automated test cases**, with **zero test failures** and sub-2-second execution time.
+Using industry-standard structural testing methodologies (Statement Coverage, Branch/Decision Coverage, Basis Path Testing, and Negative Fault-Injection), our test suite was expanded from an 83% baseline to **99.5% Statement Coverage** and **94.9% Branch Coverage** across **416 automated test cases**, with **zero test failures** and sub-2-second execution time.
 
 | Metric | Baseline | Post-White-Box Testing | Status |
 | :--- | :---: | :---: | :---: |
-| **Total Automated Tests** | 392 passed | **414 passed** | ✅ +22 targeted test cases |
-| **AI Module Statement Coverage (`app.ai`)** | 80.5% | **99.2%** | ✅ Industry Gold Standard |
+| **Total Automated Tests (AI + Analysis)** | 392 passed | **416 passed** | ✅ +24 targeted test cases |
+| **AI Module Statement Coverage (`app.ai`)** | 80.5% | **99.1%** | ✅ Industry Gold Standard |
 | **Analysis Engine Coverage (`app.analysis`)** | 91.8% | **99.8%** | ✅ Complete Deterministic Coverage |
 | **AI REST API Route Coverage (`app.api.routes.ai`)** | 94.0% | **100.0%** | ✅ Complete Error Translation |
-| **Combined Statement Coverage** | 83.2% | **99.5%** (1,128 / 1,134 stmts) | 🏆 **Grade-A Compliance** |
-| **Combined Branch Coverage** | 78.4% | **98.0%** (465 / 490 branches) | 🏆 **Grade-A Compliance** |
+| **Combined Statement Coverage** | 83.2% | **99.5%** (1,134 / 1,140 stmts) | 🏆 **Grade-A Compliance** |
+| **Combined Branch Coverage** | 78.4% | **94.9%** (469 / 494 branches) | 🏆 **Grade-A Compliance** |
 
 ---
 
@@ -30,9 +30,9 @@ Using industry-standard structural testing methodologies (Statement Coverage, Br
 White-box testing (also termed structural, clear-box, or glass-box testing) evaluates the internal logical structures, control flow paths, data flows, and condition boundaries of software code:
 
 1. **Statement Coverage ($C_{stmt}$)**: Ensures every single executable line of code is traversed by at least one test case:
-   $$C_{stmt} = \frac{\text{Executed Statements}}{\text{Total Statements}} \times 100\%$$
+   $$C_{stmt} = \frac{\text{Executed Statements}}{\text{Total Statements}} \times 100\% = \frac{1,134}{1,140} \times 100\% = 99.47\% \approx 99.5\%$$
 2. **Branch / Decision Coverage ($C_{branch}$)**: Ensures every boolean decision outcome (`True` and `False`) at each conditional jump (`if`, `elif`, `else`, `while`, `for`) is evaluated:
-   $$C_{branch} = \frac{\text{Traversed Decision Outcomes}}{\text{Total Decision Outcomes}} \times 100\%$$
+   $$C_{branch} = \frac{\text{Traversed Decision Outcomes}}{\text{Total Decision Outcomes}} \times 100\% = \frac{469}{494} \times 100\% = 94.94\% \approx 94.9\%$$
 3. **Basis Path Testing**: Deconstructs cyclomatic complexity ($V(G) = E - N + 2P$) into linear independent execution paths.
 4. **Boundary-Value Analysis (BVA)**: Tests extreme condition thresholds (e.g., zero current liabilities causing division by zero, empty transaction lists, maximum length messages, negative amounts).
 5. **Negative Fault Injection**: Deliberately simulates upstream network interruptions (`httpx.ConnectError`), malformed JSON payloads, non-numeric strings, and out-of-order execution to verify resilience and graceful degradation.
@@ -44,21 +44,21 @@ White-box testing (also termed structural, clear-box, or glass-box testing) eval
 
 The following table reflects the audited coverage executed via `pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-branch`:
 
-| Module Path | Stmts | Miss | Branch | BrPart | Stmt % | Overall Cover % | Uncovered Lines / Notes |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| `backend/app/ai/__init__.py` | 0 | 0 | 0 | 0 | **100%** | **100%** | Package initialization |
-| `backend/app/ai/chatbot.py` | 100 | 0 | 46 | 2 | **100%** | **99%** | Multi-turn reasoning & fallbacks |
-| `backend/app/ai/guard_retry.py` | 27 | 1 | 6 | 1 | **96%** | **94%** | Line 64 (Dead Code, see Sec 5) |
-| `backend/app/ai/number_guard.py` | 85 | 0 | 36 | 0 | **100%** | **100%** | Numeric regex & sign verification |
-| `backend/app/ai/providers/__init__.py` | 2 | 0 | 0 | 0 | **100%** | **100%** | Provider exports |
-| `backend/app/ai/providers/groq_provider.py` | 79 | 0 | 16 | 1 | **100%** | **99%** | Ephemeral client, network errors, bad JSON |
-| `backend/app/ai/summary.py` | 53 | 0 | 10 | 0 | **100%** | **100%** | Online LLM & template summaries |
-| `backend/app/ai/tools.py` | 184 | 4 | 90 | 7 | **98%** | **96%** | Pure fallback arithmetic & adapters |
-| `backend/app/analysis/__init__.py` | 3 | 0 | 0 | 0 | **100%** | **100%** | Analysis exports |
-| `backend/app/analysis/balance_sheet_kpis.py` | 177 | 0 | 74 | 3 | **100%** | **99%** | Working capital, current ratio, reconciliation |
-| `backend/app/analysis/bank_kpis.py` | 349 | 1 | 184 | 11 | **99%** | **98%** | Inflow, outflow, NCF, balance reconciliation |
-| `backend/app/api/routes/ai.py` | 66 | 0 | 20 | 2 | **100%** | **98%** | FastAPI routes, fixture mocks, error maps |
-| **TOTAL** | **1,125** | **6** | **482** | **27** | **99.5%** | **98.0%** | **All 410 Unit Tests Passing** |
+| Module Path | Stmts | Miss | Branch | BrPart | Stmt % | Branch % | Overall Cover % | Uncovered Lines / Notes |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| `backend/app/ai/__init__.py` | 0 | 0 | 0 | 0 | **100%** | **100%** | **100%** | Package initialization |
+| `backend/app/ai/chatbot.py` | 104 | 0 | 50 | 2 | **100%** | **96.0%** | **99%** | Multi-turn reasoning & truncation fallbacks |
+| `backend/app/ai/guard_retry.py` | 33 | 1 | 10 | 1 | **97.0%** | **90.0%** | **95%** | Line 77 (Dead Code, see Sec 5) |
+| `backend/app/ai/number_guard.py` | 85 | 0 | 36 | 0 | **100%** | **100%** | **100%** | Numeric regex & sign verification |
+| `backend/app/ai/providers/__init__.py` | 2 | 0 | 0 | 0 | **100%** | **100%** | **100%** | Provider exports |
+| `backend/app/ai/providers/groq_provider.py` | 79 | 0 | 16 | 1 | **100%** | **93.8%** | **99%** | Ephemeral client, network errors, bad JSON |
+| `backend/app/ai/summary.py` | 58 | 0 | 14 | 0 | **100%** | **100%** | **100%** | Online LLM & template summaries |
+| `backend/app/ai/tools.py` | 184 | 4 | 90 | 7 | **97.8%** | **92.2%** | **96%** | Pure fallback arithmetic & adapters |
+| `backend/app/analysis/__init__.py` | 3 | 0 | 0 | 0 | **100%** | **100%** | **100%** | Analysis exports |
+| `backend/app/analysis/balance_sheet_kpis.py` | 177 | 0 | 74 | 3 | **100%** | **95.9%** | **99%** | Working capital, current ratio, reconciliation |
+| `backend/app/analysis/bank_kpis.py` | 349 | 1 | 184 | 9 | **99.7%** | **95.1%** | **98%** | Inflow, outflow, NCF, balance reconciliation |
+| `backend/app/api/routes/ai.py` | 66 | 0 | 20 | 2 | **100%** | **90.0%** | **98%** | FastAPI routes, fixture mocks, error maps |
+| **TOTAL** | **1,140** | **6** | **494** | **25** | **99.5%** | **94.9%** | **98.0%** | **All 416 Unit Tests Passing** |
 
 *(Note: The 6 missed statements consist of 4 top-level defensive `try...except ImportError` fallback hooks, 1 proven unreachable post-loop return, and 1 unreachable duplicate string sanitization guard).*
 
@@ -102,6 +102,7 @@ To close all coverage gaps, two dedicated white-box test suites were authored:
 * **Chatbot Truncation at Max Turns**: Verified that when reasoning turns reach max limit and the final provider response was truncated, the system executes clean deterministic synthesis.
 * **Bank Summary Truncation**: Verified that a truncated bank summary generation safely triggers deterministic template fallback with exact verified figures.
 * **Balance Sheet Summary Truncation**: Verified that a truncated balance sheet summary safely triggers deterministic template fallback with working capital and liquidity ratios.
+* **Correction Truncation in Guard Retry (`guard_retry.py`)**: Verified that when an LLM corrective re-prompt response is cut off mid-sentence (`finish_reason == "length"`), it is rejected even if its numbers happen to match tool results, prompting a subsequent retry or raising `AIValidationError` upon retry exhaustion.
 
 ---
 
@@ -109,15 +110,16 @@ To close all coverage gaps, two dedicated white-box test suites were authored:
 
 A primary academic objective of white-box testing is finding unreachable (dead) code through control-flow graph (CFG) analysis. Our audit discovered one notable instance:
 
-### Unreachable Return in `backend/app/ai/guard_retry.py` (Line 64)
+### Unreachable Return in `backend/app/ai/guard_retry.py` (Line 77)
 ```python
 async def verify_and_retry_text(...) -> str:
     conversation = list(messages)
     current_text = initial_text
+    last_finish_reason = "stop"
 
     for attempt in range(max_retries + 1):
         check = verify_tool_results_text(current_text, tool_results)
-        if check.valid:
+        if check.valid and last_finish_reason != "length":
             return current_text  # [Exit Point A]
 
         if attempt == max_retries:
@@ -125,8 +127,9 @@ async def verify_and_retry_text(...) -> str:
 
         # ... generate retry with LLM ...
         current_text = retry_response.content or ""
+        last_finish_reason = retry_response.finish_reason
 
-    return current_text  # <-- LINE 64: UNREACHABLE DEAD CODE
+    return current_text  # <-- LINE 77: UNREACHABLE DEAD CODE
 ```
 
 **Formal Control-Flow Proof:**

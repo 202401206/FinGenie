@@ -758,3 +758,90 @@ async def test_balance_sheet_summary_truncated_provider_response_fallback() -> N
     resp = await generate_summary(data, provider=mock_llm)
     assert "The balance sheet is reconciled and balanced." in resp.text
     assert "working capital of USD 25000" in resp.text
+
+
+@pytest.mark.anyio
+async def test_guard_retry_truncated_correction_triggers_subsequent_retry_and_succeeds() -> (
+    None
+):
+    """Ensure truncated correction response is not accepted even if numbers match, prompting subsequent retry."""
+    from app.ai.guard_retry import verify_and_retry_text
+
+    tool_res = ToolResult(
+        name="bank_total_credit",
+        value=Decimal("5000"),
+        unit="INR",
+        calculation_id="bank.total_credit.v1",
+        source_refs=[],
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    # Attempt 1: cut off mid-sentence with valid number 5000, but finish_reason='length'
+    # Attempt 2: complete response with finish_reason='stop'
+    mock_llm.generate = AsyncMock(
+        side_effect=[
+            GroqResponse(
+                content="Total credits are INR 5000 and the account balance is...",
+                tool_calls=[],
+                finish_reason="length",
+                model="openai/gpt-oss-120b",
+            ),
+            GroqResponse(
+                content="Total credits are INR 5000.",
+                tool_calls=[],
+                finish_reason="stop",
+                model="openai/gpt-oss-120b",
+            ),
+        ]
+    )
+
+    # Initial text has invalid number 9999
+    result = await verify_and_retry_text(
+        initial_text="Total deposits were INR 9999.",
+        tool_results=[tool_res],
+        messages=[{"role": "user", "content": "What are my deposits?"}],
+        llm=mock_llm,
+        max_retries=2,
+    )
+    assert result == "Total credits are INR 5000."
+    assert mock_llm.generate.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_guard_retry_truncated_correction_raises_validation_error_on_max_retries() -> (
+    None
+):
+    """Ensure persistent truncated corrections on retry exhaust budget and raise AIValidationError."""
+    from app.ai.guard_retry import AIValidationError, verify_and_retry_text
+
+    tool_res = ToolResult(
+        name="bank_total_credit",
+        value=Decimal("5000"),
+        unit="INR",
+        calculation_id="bank.total_credit.v1",
+        source_refs=[],
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    # Both retry attempts return truncated responses
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Total credits are INR 5000 and partial...",
+            tool_calls=[],
+            finish_reason="length",
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    with pytest.raises(AIValidationError) as exc_info:
+        await verify_and_retry_text(
+            initial_text="Total deposits were INR 9999.",
+            tool_results=[tool_res],
+            messages=[{"role": "user", "content": "What are my deposits?"}],
+            llm=mock_llm,
+            max_retries=2,
+        )
+
+    assert "truncated" in str(exc_info.value).lower()

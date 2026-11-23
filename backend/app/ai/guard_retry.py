@@ -31,20 +31,31 @@ async def verify_and_retry_text(
     """
     current_text = initial_text
     conversation = list(messages)
+    last_finish_reason = "stop"
 
     for attempt in range(max_retries + 1):
         check = verify_tool_results_text(current_text, tool_results)
-        if check.valid:
+        if check.valid and last_finish_reason != "length":
             return current_text
 
         if attempt == max_retries:
+            if last_finish_reason == "length":
+                raise AIValidationError(
+                    "Generated financial response was truncated by provider token limits during correction retry."
+                )
             issue_summary = "; ".join(f"'{i.token}' ({i.reason})" for i in check.issues)
             raise AIValidationError(
                 f"Generated financial response failed numeric verification: {issue_summary}",
                 issues=[f"{i.token}: {i.reason}" for i in check.issues],
             )
 
-        issue_details = "; ".join(f"'{i.token}' ({i.reason})" for i in check.issues)
+        if last_finish_reason == "length":
+            issue_details = (
+                "Response was cut off mid-sentence due to token length limit"
+            )
+        else:
+            issue_details = "; ".join(f"'{i.token}' ({i.reason})" for i in check.issues)
+
         corrective_prompt = (
             f"SECURITY REJECTION: Your previous response contained unverified numbers or disallowed formatting: "
             f"{issue_details}.\n"
@@ -53,12 +64,14 @@ async def verify_and_retry_text(
             f"2. Do not invent, guess, or extrapolate any numbers.\n"
             f"3. Do not include calendar years or dates with numbers (use 'this statement period').\n"
             f"4. Do not use numbered lists (1., 2.); use bullet dashes (-) if needed.\n"
-            f"5. Do not use number words (e.g. write 5,000, not 'five thousand')."
+            f"5. Do not use number words (e.g. write 5,000, not 'five thousand').\n"
+            f"6. Keep your response concise so it is not truncated."
         )
         conversation.append({"role": "assistant", "content": current_text})
         conversation.append({"role": "user", "content": corrective_prompt})
 
         retry_response = await llm.generate(messages=conversation, temperature=0.0)
         current_text = retry_response.content or ""
+        last_finish_reason = retry_response.finish_reason
 
     return current_text
