@@ -176,6 +176,8 @@ filters can be proposed when their UI is designed; none are promised here.
 
 ## Sprint 2: analysis and summary
 
+See the [Sprint 2 frontend handoff](../../docs/sprint-2-api-handoff.md) for request examples and local verification.
+
 `GET /api/workspaces/{id}/analysis`: no body. 200 body matches
 [bank analysis](../examples/financial-analysis.json) or
 [balance-sheet analysis](../examples/balance-sheet-analysis.json).
@@ -186,10 +188,16 @@ the deterministic analysis functions.
 Unreliable parsed data produces explicit reliability/warnings and unavailable
 metrics where necessary. Balance sheets with unknown currency or scale withhold
 monetary values and ratios. Unresolved classifications or missing current amounts
-withhold working capital and current ratio. Unparsed/failed workspaces return 409 `document_not_ready`.
+withhold working capital and current ratio. Prior periods, reported subtotals,
+nonfinancial notes, and repeated matching totals stay in the source record.
+Unparsed or failed workspaces return 409 `document_not_ready`.
 
 `POST /api/workspaces/{id}/summary`: JSON request `{}`. Returns a nonstreaming,
-validated summary of the workspace's calculated results, never the raw file.
+validated summary of the signed-in user's saved document. Only verified metrics
+are sent to the summary provider. Missing and foreign workspaces return 404
+`workspace_not_found`. If the document has not parsed, the route returns 409
+`document_not_ready`. If required metrics are unavailable or results are
+unreliable, it returns 409 `analysis_not_ready` before calling the provider.
 Example 200:
 
 ```json
@@ -208,9 +216,37 @@ Example 200:
 }
 ```
 
-Always display the disclaimer last. Numeric content must pass the future guard
-against referenced calculation outputs; references alone do not establish validity.
-Do not generate an authoritative summary when required inputs are unreliable.
+Always display the disclaimer last. The numeric guard validates generated text
+against calculation outputs. Persistent verification failure returns 502
+`ai_validation_failed`.
+
+## Sprint 2: upload attempt recovery
+
+Upload errors retain `detail.code` and `detail.message` and may include
+`detail.attempt_id` once the attempt was recorded or its recording became
+uncertain. If the entire upload reply was lost, list recent attempts. Use the
+current signed-in user's bearer token for all three routes.
+
+| Request | Successful response |
+| --- | --- |
+| GET /api/upload-attempts?limit=50&offset=0 | 200 with `items`, `limit`, `offset`, `total`. Limit is 1 to 100. Offset is nonnegative. |
+| GET /api/upload-attempts/{attempt_id} | 200 with the latest recorded status for the attempt. |
+| POST /api/upload-attempts/{attempt_id}/recover | Send `{}`. 200 with `attempt_id`, `status` (`completed` or `cleaned`), and `receipt` (null if cleaned). |
+
+List and detail include the attempt, workspace and document IDs, document type,
+status, last error code, receipt and timestamps. Recent attempts are ordered
+newest first by creation time and ID. Status can be `pending`, `completed`,
+`cleaned` or `needs_review`. Only a completed attempt has a receipt. It contains
+`workspace_id`, `document_id`, `status: "parsed"` and `transaction_count`.
+Balance sheets have a transaction count of zero. Private recovery context
+stays on the server.
+
+Missing and foreign IDs both return 404 `upload_attempt_not_found`. Recovery may
+return 401 if a fresh token is needed, 409 `state_conflict` if the attempt needs
+review, or 503 `reconciliation_required` / `cleanup_required` if the result
+remains uncertain. Recovery errors after an attempt is identified include its ID
+where appropriate. Retry using the same attempt ID. Recovery checks or cleans up
+the original attempt. A cleaned attempt means the original upload failed.
 
 ## Sprint 3: chat and projections
 
@@ -218,6 +254,7 @@ Do not generate an authoritative summary when required inputs are unreliable.
 `{"message":"What is my net cash flow?"}` (nonempty text; proposed maximum 2000
 characters). Initial proposed contract is one question/answer per request, no
 stored conversation history or streaming. A future history design needs review.
+The existing chat route uses the same owned-document and readiness checks as summary.
 200 body uses the same `text`, `calculation_ids`, `source_refs`, `disclaimer` shape
 as summary. Call calculation tools; reject/retry unsupported numbers. Bound retries;
 if validation cannot succeed return 502 `ai_validation_failed` with no unvalidated

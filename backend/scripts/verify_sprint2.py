@@ -25,7 +25,7 @@ def depends_on(dependant, dependency) -> bool:
 
 
 def api_prerequisites() -> list[dict[str, object]]:
-    from fastapi.routing import APIRoute
+    from fastapi import routing
 
     from app.core.security import require_user
     from app.db.dependencies import get_workspace_repository
@@ -33,8 +33,11 @@ def api_prerequisites() -> list[dict[str, object]]:
     from app.services.source_dependencies import get_upload_attempt_service
 
     routes = {}
-    for route in app.routes:
-        if isinstance(route, APIRoute):
+    # FastAPI may keep included routers grouped instead of flattening app.routes.
+    iter_contexts = getattr(routing, "iter_route_contexts", None)
+    mounted_routes = iter_contexts(app.routes) if iter_contexts else app.routes
+    for route in mounted_routes:
+        if isinstance(getattr(route, "original_route", route), routing.APIRoute):
             path = re.sub(r"\{[^}]+\}", "{}", route.path)
             for method in route.methods:
                 routes[(method, path)] = route

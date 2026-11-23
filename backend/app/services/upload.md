@@ -74,8 +74,9 @@ does not perform raw metadata deletes or separate transaction inserts.
 P4 persists validated context before reservation through the authenticated upload
 attempt dependency, then verifies journal completion after a save. Recovery uses
 the stored original IDs/context after restart. Unknown journal creation stops all
-later source writes; a lost completion reply preserves the saved source. Public
-attempt endpoints remain Anshuman's A4 work. See
+later source writes. A lost completion reply preserves the saved source. The
+upload error can include an attempt ID. The attempt API supports listing, viewing
+and explicitly recovering an owned attempt. See
 [durable attempt handoff](../../../docs/sprint-2-upload-attempt-handoff.md).
 
 ## Multipart and CORS
