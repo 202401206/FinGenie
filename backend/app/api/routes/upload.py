@@ -11,6 +11,7 @@ from starlette.formparsers import MultiPartException
 from app.db.dependencies import get_parsed_document_repository, get_workspace_repository
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
 from app.db.repositories.workspaces import WorkspaceRepository
+from app.schemas.error_responses import UploadErrorResponse
 from app.schemas.upload_responses import UploadResponse
 from app.services.source_dependencies import (
     SourceUploadAccess,
@@ -61,6 +62,32 @@ def create_upload_router(
         "/upload",
         response_model=UploadResponse,
         status_code=201,
+        responses={
+            401: {
+                "model": UploadErrorResponse,
+                "description": "Authentication required.",
+            },
+            409: {
+                "model": UploadErrorResponse,
+                "description": "Upload or saved state conflict.",
+            },
+            413: {
+                "model": UploadErrorResponse,
+                "description": "Source or request too large.",
+            },
+            415: {
+                "model": UploadErrorResponse,
+                "description": "Unsupported file type.",
+            },
+            422: {
+                "model": UploadErrorResponse,
+                "description": "Upload fields or document rejected.",
+            },
+            503: {
+                "model": UploadErrorResponse,
+                "description": "Upload or recovery pending or unavailable.",
+            },
+        },
         openapi_extra={
             "requestBody": {
                 "required": True,
@@ -146,9 +173,15 @@ def create_upload_router(
             headers = (
                 {"WWW-Authenticate": "Bearer"} if error.status_code == 401 else None
             )
+            detail = {"code": error.code, "message": str(error)}
+            if (
+                isinstance(error, UploadProcessingError)
+                and error.attempt_id is not None
+            ):
+                detail["attempt_id"] = str(error.attempt_id)
             raise HTTPException(
                 error.status_code,
-                detail={"code": error.code, "message": str(error)},
+                detail=detail,
                 headers=headers,
             ) from None
         except StarletteHTTPException as error:
