@@ -1,0 +1,29 @@
+{
+  "company": null,
+  "reporting_date": "2026-01-31",
+  "currency": null,
+  "unit_scale": null,
+  "assets": {
+    "current": [],
+    "non_current": [],
+    "total": null
+  },
+  "liabilities": {
+    "current": [],
+    "non_current": [],
+    "total": null
+  },
+  "equity": {
+    "share_capital": null,
+    "retained_earnings": null,
+    "total": null
+  },
+  "unmapped": [],
+  "source_metadata": {
+    "document_id": "30000000-0000-4000-8000-000000000001",
+    "sheet_name": null
+  },
+  "source_locations": {
+    "reporting_date": { "source_row": 1 }
+  }
+}

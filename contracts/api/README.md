@@ -64,15 +64,15 @@ This endpoint does not replace Supabase's signup/login API.
 No client-provided owner ID. The browser sets the multipart boundary; callers
 using FormData must not manually set `Content-Type`.
 
-**Milestone 3 working intake policy (7 November 2026):** Anshuman authorized
-implementation of bank-statement-only CSV/XLSX validation with a 5 MiB source
-limit and 25 MiB expanded-XLSX limit, pending team review. Balance sheets receive
-422 unsupported_document_type from the helper. See the
-[working policy and exact resource caps](../../backend/app/services/upload-validation.md).
-The real upload route now uses Dhaval's CSV/XLSX parser, with 500 ZIP members and
-a 20,000 populated-record intake budget around the 10,000 transaction cap.
-See [upload orchestration](../../backend/app/services/upload.md) for recovery and
-hosted verification status. Balance-sheet uploads remain deferred.
+Bank statements are accepted for personal and business workspaces. Balance sheets
+are accepted for business workspaces in CSV or XLSX (layouts A and B). Submitting
+a personal balance sheet returns 422 `unsupported_document_type`. The response
+shape is the same for both document types. Balance amounts stay in reported units
+and the reporting date stays in parsed JSON. The bank period columns stay null.
+
+The working intake caps are 5 MiB for source files and 25 MiB for expanded XLSX.
+See [upload limits](../../backend/app/services/upload-validation.md) and
+[upload orchestration](../../backend/app/services/upload.md).
 
 Validate allowed combinations, file type/content, required columns and eventual
 size limit; then parse and validate standardized JSON. Proposed synchronous flow:
@@ -174,17 +174,54 @@ This one-item response illustrates the shape independently of the three-row fixt
 Balance-sheet workspaces return 409 `unsupported_document_type`. Date/category
 filters can be proposed when their UI is designed; none are promised here.
 
+## Sprint 2 dashboard
+
+`GET /api/workspaces/{workspace_id}/dashboard` reads the signed-in user's saved
+document. Send Authorization with the bearer access token and no body. The 200
+response contains workspace_id, document_id, document_type, nullable metadata,
+the analysis envelope, typed charts, and separate largest_inflows/largest_outflows.
+
+See the complete [bank dashboard](../examples/bank-dashboard.json) and
+[balance sheet dashboard](../examples/balance-sheet-dashboard.json) examples, and
+the [frontend handoff](../../docs/sprint-2-dashboard-api-handoff.md) for all keys,
+formulas, units, source references and limitations.
+
+Charts cover the entire saved document. Bank flow charts show observed dates
+and months. Missing periods are gaps. Daily balances require verified chronology.
+Balance charts show a current snapshot. Monetary output uses base source currency,
+with balance unit_scale applied once, and ratios remain unscaled. Null values
+and unavailable charts have explanations. Preserve reliability and warnings.
+
+Missing and foreign workspaces both return 404 workspace_not_found. Unparsed
+documents return 409 document_not_ready. Invalid UUIDs return 422. Missing or
+rejected tokens return 401, and unavailable dependencies or invalid dashboard
+results return safe 503 errors. Incomplete or unreliable parsed inputs return
+200 with their warnings and unavailable sections.
+
 ## Sprint 2: analysis and summary
+
+See the [Sprint 2 frontend handoff](../../docs/sprint-2-api-handoff.md) for request examples and local verification.
 
 `GET /api/workspaces/{id}/analysis`: no body. 200 body matches
 [bank analysis](../examples/financial-analysis.json) or
 [balance-sheet analysis](../examples/balance-sheet-analysis.json).
-Only Python functions compute KPIs. No database access inside deterministic analysis.
+The route reads the signed-in user's saved parsed document before computing KPIs.
+Missing and foreign workspaces both return 404. The response contains source
+references and exact numeric JSON values. No database access occurs inside
+the deterministic analysis functions.
 Unreliable parsed data produces explicit reliability/warnings and unavailable
-metrics where necessary. Unparsed/failed workspaces return 409 `document_not_ready`.
+metrics where necessary. Balance sheets with unknown currency or scale withhold
+monetary values and ratios. Unresolved classifications or missing current amounts
+withhold working capital and current ratio. Prior periods, reported subtotals,
+nonfinancial notes, and repeated matching totals stay in the source record.
+Unparsed or failed workspaces return 409 `document_not_ready`.
 
 `POST /api/workspaces/{id}/summary`: JSON request `{}`. Returns a nonstreaming,
-validated summary of the workspace's calculated results, never the raw file.
+validated summary of the signed-in user's saved document. Only verified metrics
+are sent to the summary provider. Missing and foreign workspaces return 404
+`workspace_not_found`. If the document has not parsed, the route returns 409
+`document_not_ready`. If required metrics are unavailable or results are
+unreliable, it returns 409 `analysis_not_ready` before calling the provider.
 Example 200:
 
 ```json
@@ -203,9 +240,37 @@ Example 200:
 }
 ```
 
-Always display the disclaimer last. Numeric content must pass the future guard
-against referenced calculation outputs; references alone do not establish validity.
-Do not generate an authoritative summary when required inputs are unreliable.
+Always display the disclaimer last. The numeric guard validates generated text
+against calculation outputs. Persistent verification failure returns 502
+`ai_validation_failed`.
+
+## Sprint 2: upload attempt recovery
+
+Upload errors retain `detail.code` and `detail.message` and may include
+`detail.attempt_id` once the attempt was recorded or its recording became
+uncertain. If the entire upload reply was lost, list recent attempts. Use the
+current signed-in user's bearer token for all three routes.
+
+| Request | Successful response |
+| --- | --- |
+| GET /api/upload-attempts?limit=50&offset=0 | 200 with `items`, `limit`, `offset`, `total`. Limit is 1 to 100. Offset is nonnegative. |
+| GET /api/upload-attempts/{attempt_id} | 200 with the latest recorded status for the attempt. |
+| POST /api/upload-attempts/{attempt_id}/recover | Send `{}`. 200 with `attempt_id`, `status` (`completed` or `cleaned`), and `receipt` (null if cleaned). |
+
+List and detail include the attempt, workspace and document IDs, document type,
+status, last error code, receipt and timestamps. Recent attempts are ordered
+newest first by creation time and ID. Status can be `pending`, `completed`,
+`cleaned` or `needs_review`. Only a completed attempt has a receipt. It contains
+`workspace_id`, `document_id`, `status: "parsed"` and `transaction_count`.
+Balance sheets have a transaction count of zero. Private recovery context
+stays on the server.
+
+Missing and foreign IDs both return 404 `upload_attempt_not_found`. Recovery may
+return 401 if a fresh token is needed, 409 `state_conflict` if the attempt needs
+review, or 503 `reconciliation_required` / `cleanup_required` if the result
+remains uncertain. Recovery errors after an attempt is identified include its ID
+where appropriate. Retry using the same attempt ID. Recovery checks or cleans up
+the original attempt. A cleaned attempt means the original upload failed.
 
 ## Sprint 3: chat and projections
 
@@ -213,6 +278,7 @@ Do not generate an authoritative summary when required inputs are unreliable.
 `{"message":"What is my net cash flow?"}` (nonempty text; proposed maximum 2000
 characters). Initial proposed contract is one question/answer per request, no
 stored conversation history or streaming. A future history design needs review.
+The existing chat route uses the same owned-document and readiness checks as summary.
 200 body uses the same `text`, `calculation_ids`, `source_refs`, `disclaimer` shape
 as summary. Call calculation tools; reject/retry unsupported numbers. Bound retries;
 if validation cannot succeed return 502 `ai_validation_failed` with no unvalidated

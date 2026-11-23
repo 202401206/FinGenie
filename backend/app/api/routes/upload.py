@@ -1,4 +1,4 @@
-"""Upload router factory. Mount only with the real reviewed bank parser."""
+"""Authenticated uploads with the parser for the requested document type."""
 
 from typing import Annotated
 
@@ -11,13 +11,16 @@ from starlette.formparsers import MultiPartException
 from app.db.dependencies import get_parsed_document_repository, get_workspace_repository
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
 from app.db.repositories.workspaces import WorkspaceRepository
+from app.schemas.error_responses import UploadErrorResponse
 from app.schemas.upload_responses import UploadResponse
 from app.services.source_dependencies import (
     SourceUploadAccess,
     get_source_upload_access,
+    get_upload_attempt_service,
     get_upload_recovery_service,
 )
-from app.services.upload import BankParser, UploadProcessingError, UploadService
+from app.services.upload import StatementParser, UploadProcessingError, UploadService
+from app.services.upload_attempts import UploadAttemptService
 from app.services.upload_recovery import UploadRecoveryService
 from app.services.upload_validation import (
     DEFAULT_POLICY,
@@ -29,7 +32,10 @@ BODY_LIMIT_MESSAGE = "Upload request exceeds the supported size."
 
 
 def create_upload_router(
-    parser: BankParser, *, policy: UploadPolicy = DEFAULT_POLICY
+    bank_parser: StatementParser,
+    *,
+    balance_parser: StatementParser,
+    policy: UploadPolicy = DEFAULT_POLICY,
 ) -> APIRouter:
     # Auth dependencies run before manual multipart parsing. Limit the entire
     # multipart body too, because file spooling precedes the bounded helper read.
@@ -56,6 +62,32 @@ def create_upload_router(
         "/upload",
         response_model=UploadResponse,
         status_code=201,
+        responses={
+            401: {
+                "model": UploadErrorResponse,
+                "description": "Authentication required.",
+            },
+            409: {
+                "model": UploadErrorResponse,
+                "description": "Upload or saved state conflict.",
+            },
+            413: {
+                "model": UploadErrorResponse,
+                "description": "Source or request too large.",
+            },
+            415: {
+                "model": UploadErrorResponse,
+                "description": "Unsupported file type.",
+            },
+            422: {
+                "model": UploadErrorResponse,
+                "description": "Upload fields or document rejected.",
+            },
+            503: {
+                "model": UploadErrorResponse,
+                "description": "Upload or recovery pending or unavailable.",
+            },
+        },
         openapi_extra={
             "requestBody": {
                 "required": True,
@@ -71,7 +103,8 @@ def create_upload_router(
                                 },
                                 "document_type": {
                                     "type": "string",
-                                    "enum": ["bank_statement"],
+                                    "enum": ["bank_statement", "balance_sheet"],
+                                    "description": "Balance sheets require business user type.",
                                 },
                                 "file": {"type": "string", "format": "binary"},
                             },
@@ -91,9 +124,17 @@ def create_upload_router(
             UploadRecoveryService, Depends(get_upload_recovery_service)
         ],
         workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
+        attempts: Annotated[UploadAttemptService, Depends(get_upload_attempt_service)],
     ) -> UploadResponse:
         service = UploadService(
-            parser, access, save, recovery, workspaces, policy=policy
+            bank_parser,
+            access,
+            save,
+            recovery,
+            workspaces,
+            balance_parser=balance_parser,
+            policy=policy,
+            attempts=attempts,
         )
         try:
             async with request.form(
@@ -132,9 +173,15 @@ def create_upload_router(
             headers = (
                 {"WWW-Authenticate": "Bearer"} if error.status_code == 401 else None
             )
+            detail = {"code": error.code, "message": str(error)}
+            if (
+                isinstance(error, UploadProcessingError)
+                and error.attempt_id is not None
+            ):
+                detail["attempt_id"] = str(error.attempt_id)
             raise HTTPException(
                 error.status_code,
-                detail={"code": error.code, "message": str(error)},
+                detail=detail,
                 headers=headers,
             ) from None
         except StarletteHTTPException as error:

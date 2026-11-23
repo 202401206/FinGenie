@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import pytest
 
+from app.db.parsed_models import ParsedSaveReceipt
+from app.parsers.errors import BankStatementParserError
 from app.services.source_errors import (
     ParsedDocumentRejected,
     SourceConflict,
@@ -16,11 +18,12 @@ from app.services.source_errors import (
     SourceUnavailable,
 )
 from app.services.upload import (
-    BankStatementParserError,
     UploadProcessingError,
     UploadService,
+    checked_receipt,
 )
 from app.services.upload_validation import DEFAULT_POLICY, UploadValidationError
+from tests.source_fixtures import make_attempt
 from tests.upload_fixtures import UploadHarness
 
 
@@ -31,6 +34,7 @@ def service(harness, **kwargs):
         harness.save,
         harness.recovery,
         harness.reads,
+        balance_parser=harness.parse,
         **kwargs,
     )
 
@@ -243,3 +247,26 @@ def test_recovered_save_with_unavailable_metadata_is_safe():
         process(harness)
     assert caught.value.status_code == 503
     assert "private" not in str(caught.value)
+
+
+@pytest.mark.parametrize("document_type", ["bank_statement", "balance_sheet"])
+def test_receipt_counts_only_bank_statement_transactions(document_type):
+    attempt = make_attempt(user_type="business", document_type=document_type)
+    if document_type == "bank_statement":
+        parsed = {"transactions": [{"source_row": 2}]}
+        expected_count = 1
+    else:
+        parsed = {"reporting_date": "2026-03-31"}
+        expected_count = 0
+
+    receipt = ParsedSaveReceipt(
+        workspace_id=attempt.workspace_id,
+        document_id=attempt.document_id,
+        status="parsed",
+        transaction_count=expected_count,
+    )
+    assert checked_receipt(receipt, attempt, parsed) == receipt
+
+    wrong_count = receipt.model_copy(update={"transaction_count": 1 - expected_count})
+    with pytest.raises(SourceOutcomeUnknown, match="could not be confirmed"):
+        checked_receipt(wrong_count, attempt, parsed)

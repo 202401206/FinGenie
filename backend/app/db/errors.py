@@ -5,6 +5,10 @@ class WorkspaceNotFound(Exception):
     """Absent and unowned workspaces deliberately have the same failure."""
 
 
+class DocumentNotReady(Exception):
+    """The owned workspace has no completed parsed result yet."""
+
+
 class UnsupportedDocumentType(Exception):
     """A balance sheet does not provide bank-statement transactions."""
 

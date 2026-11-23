@@ -1,9 +1,9 @@
-# Bank-statement upload orchestration
+# Statement upload orchestration
 
 ## Status on 8 November 2026
 
 Anshuman merged Dhaval's feature/backend-parsers branch in merge commit 4930cb1.
-The production app now mounts POST /api/upload with the real CSV/XLSX parser.
+That merge activated POST /api/upload for CSV/XLSX bank statements.
 Route tests use that production entry point and actual auth/repository/Storage
 helper code, replacing only external Supabase HTTP with synthetic responses.
 
@@ -13,23 +13,25 @@ integration handoff.
 
 ## Interface and flow
 
-The synchronous parse_bank_statement(content, *, file_kind, document_id)
-function returns Dhaval's BankStatement model and raises
-BankStatementParserError subclasses for supported parser failures. It runs in
-a worker thread. Safe HTTP errors never include parser messages or raw rows.
+The route accepts bank statements for personal and business use and balance
+sheets for business use. It selects parse_bank_statement or parse_balance_sheet
+using the validated document type. Both run in a worker thread and use the
+shared StatementParserError boundary for safe HTTP errors.
 
 UploadService uses the existing authenticated SourceUploadAccess,
 ParsedDocumentRepository, UploadRecoveryService and WorkspaceRepository:
 
 1. Authenticate before reading multipart input, then validate the file.
-2. Generate workspace/document IDs and a Bank statement YYYY-MM-DD UTC name.
+2. Generate workspace/document IDs and a dated name for the document type.
 3. Parse the exact bounded bytes with the generated document UUID.
 4. Validate the parsed result through the existing save model. Check the source
-   document ID, 10,000 transaction limit and JSON serialization of all extra
-   fields. model_dump(mode="python") preserves Decimal, dates and UUIDs.
+   document ID and JSON serialization of extra fields. For bank statements,
+   enforce the 10,000 transaction limit. Balance sheets keep reported amounts
+   and nulls in parsed JSON, including the reporting date. The bank period
+   columns stay null.
 5. Reserve metadata, upload the same original bytes, then atomically finalize.
-6. Validate the receipt IDs and transaction count, then return the public
-   workspace/document response with 201.
+6. Validate the receipt IDs and transaction count (zero for balance sheets),
+   then return the public workspace/document response with 201.
 
 The contract response includes public workspace fields plus document id/status.
 It excludes private paths, tokens and parsed financial contents.
@@ -69,9 +71,13 @@ is handled before SourceUnavailable. There are no automatic write retries.
 The existing helper owns source removal and metadata release. The orchestration
 does not perform raw metadata deletes or separate transaction inserts.
 
-Secure retention of full pending attempt/expected parsed context across request
-termination or restart still requires the lead's operational design. There is
-no durable reconciliation queue or public retry endpoint.
+P4 persists validated context before reservation through the authenticated upload
+attempt dependency, then verifies journal completion after a save. Recovery uses
+the stored original IDs/context after restart. Unknown journal creation stops all
+later source writes. A lost completion reply preserves the saved source. The
+upload error can include an attempt ID. The attempt API supports listing, viewing
+and explicitly recovering an owned attempt. See
+[durable attempt handoff](../../../docs/sprint-2-upload-attempt-handoff.md).
 
 ## Multipart and CORS
 
@@ -84,7 +90,8 @@ independent of Content-Length. Fields are limited to 64 KiB. Source bytes also
 pass the stricter 5 MiB intake check. Temporary files close on success and
 expected parser/size failures.
 
-CORS permits GET and POST only for the existing configured origins.
+CORS permits GET, POST, PATCH and DELETE for the existing configured origins;
+Settings introduced PATCH/DELETE and the Idempotency-Key header.
 The helper still accepts a custom UploadPolicy for unit tests. Increasing
 intake limits does not override independent limits in the real parser.
 
@@ -93,9 +100,10 @@ intake limits does not override independent limits in the real parser.
 Tests cover synthetic real CSV and generated XLSX files, the production route,
 source byte/UUID preservation, exact Decimal values through the atomic-save
 HTTP boundary, user-token separation, 10,000 transactions with metadata,
-malformed dates/formulas, invalid layouts, write order and all recovery states.
-Supabase HTTP is simulated. Hosted RLS/Storage and live demonstration remain
-explicitly unverified.
+malformed dates/formulas, invalid layouts, write order and recovery. Database
+integration tests cover balance layouts A and B in CSV and XLSX, missing metadata,
+and recovery after a lost save response. They use local PostgreSQL through
+PGlite with simulated Auth and Storage HTTP. Live hosted checks remain pending.
 
 Dependency reference:
 https://pypi.org/project/python-multipart/0.0.33/

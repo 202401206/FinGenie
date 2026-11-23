@@ -1,25 +1,25 @@
 # FinGenie
 
 A semester team project for understanding financial documents through dashboards
-and an AI assistant. Sprint 1 backend work has started.
+and an AI assistant.
 
-**Implemented:** a React title page, public `GET /api/health`, authenticated
-`GET /api/me`, and the initial Supabase tables, ownership policies and private bucket.
-The backend also has user-scoped workspace/transaction read repositories for
-connecting the upcoming routes; see [database access](backend/app/db/README.md).
-Private source upload/removal helpers and a metadata reservation migration are
-prepared for the upload service; see [source uploads](backend/app/services/source-uploads.md).
-An atomic bank-statement save repository and local migration are also available;
-see [parsed persistence](backend/app/db/parsed-documents.md). Full upload integration
-is still pending.
-**Planned:** CSV/XLSX upload, Python parsing, deterministic financial calculations,
-dashboards, summaries, chat and bank-statement projections. Personal users may
-upload bank statements; business users may also upload balance sheets.
+The integrated Sprint 2 backend supports authenticated bank/balance CSV/XLSX
+uploads, private sources, atomic parsed persistence, owned reads/analysis/summaries,
+durable manual upload recovery and Settings preferences/financial-data deletion.
+Personal users upload bank statements; business users may also upload balance
+sheets. Dashboard calculations/endpoints and frontend integration have separate
+team milestones. A working persistence flow does not mean the whole app is finished.
+
+See [database access](backend/app/db/README.md),
+[source uploads](backend/app/services/source-uploads.md),
+[parsed persistence](backend/app/db/parsed-documents.md), and
+[Sprint 2 verification](docs/sprint-2-verification.md) for tested behavior and limits.
 
 One monorepo (a repository containing both frontend and backend), one modular
 FastAPI server, exactly three development teams. Supabase will provide Auth,
 PostgreSQL and private file storage. See [Supabase setup](docs/supabase-setup.md)
-for this first backend work package and the remaining team assignments.
+and the [migration inventory](supabase/migrations/README.md) for configuration
+and the current development deployment.
 
 ## Start here
 
@@ -46,9 +46,9 @@ npm run dev
 ```
 
 Open <http://localhost:5173>, <http://localhost:8000/docs>, and
-<http://localhost:8000/api/health>. The title page does not fetch the API yet.
-The health and identity endpoints have automated tests. Run the checks in the setup
-guide after your manual installation; `/api/me` additionally requires Supabase settings.
+<http://localhost:8000/api/health>. Configure the local environment files using
+the setup guide; protected endpoints require a valid Supabase user session.
+Run the backend checks in [Sprint 2 verification](docs/sprint-2-verification.md).
 
 ## Find your work
 
@@ -69,12 +69,11 @@ The requirements were read from the supplied *FinGenie Brainstorming Session*
 those requirements from the user's refinements and proposed conventions.
 The PDF and real financial documents are deliberately not copied into the repo.
 
-## Before the initial commit
+## Before committing
 
 - Install dependencies manually and run the checks in `docs/setup.md`.
-- Review contracts with affected teams; examples are synthetic, not API responses.
+- Review shared API/schema changes with affected teams; examples use synthetic data.
 - Check `git status` and staged changes for secrets, `.env`, raw financial data,
   virtual environments and `node_modules`.
-- Commit the generated `frontend/package-lock.json` after reviewing it.
-- Decide the first supported banks, sample-file steward and contract reviewers.
-- Follow `CONTRIBUTING.md` to initialize Git and enable basic PR protection yourself.
+- Keep personal planning, viva notes and hosted verification evidence in ignored `local-only/`.
+- Follow `CONTRIBUTING.md` and require the relevant CI checks before merging.

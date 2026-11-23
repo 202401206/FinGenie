@@ -7,6 +7,7 @@ from fastapi import Depends
 
 from app.core.security import get_auth_client, require_bearer, require_user
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
+from app.db.repositories.settings import SettingsRepository
 from app.db.repositories.workspaces import WorkspaceRepository
 from app.schemas.responses import CurrentUser
 
@@ -27,3 +28,11 @@ def get_parsed_document_repository(
     client: Annotated[httpx.AsyncClient, Depends(get_auth_client)],
 ) -> ParsedDocumentRepository:
     return ParsedDocumentRepository(client, user.id, token)
+
+
+def get_settings_repository(
+    user: Annotated[CurrentUser, Depends(require_user)],
+    token: Annotated[str, Depends(require_bearer)],
+    client: Annotated[httpx.AsyncClient, Depends(get_auth_client)],
+) -> SettingsRepository:
+    return SettingsRepository(client, user.id, token)

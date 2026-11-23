@@ -22,6 +22,29 @@ class SourceReservationRepository:
         self._user_id = user_id
         self._token = SecretStr(access_token)
 
+    async def get_generation(self) -> int:
+        try:
+            response = await self._client.post(
+                "/rest/v1/rpc/get_upload_generation",
+                headers={"Authorization": f"Bearer {self._token.get_secret_value()}"},
+                json={},
+            )
+        except httpx.RequestError:
+            raise SourceUnavailable() from None
+        if response.status_code == 401:
+            raise SourceUnauthorized()
+        if response.status_code == 409:
+            raise SourceConflict()
+        if response.status_code != 200:
+            raise SourceUnavailable()
+        try:
+            value = response.json()["generation"]
+            if type(value) is not int or value < 0:
+                raise ValueError()
+            return value
+        except (ValueError, KeyError, TypeError):
+            raise SourceUnavailable() from None
+
     async def reserve(self, attempt: SourceAttempt) -> SourceReservation:
         if attempt.user_id != self._user_id:
             raise ValueError("Upload owner must be the verified caller.")
@@ -33,10 +56,11 @@ class SourceReservationRepository:
             "p_name": attempt.name,
             "p_original_filename": attempt.original_filename,
             "p_file_extension": attempt.kind.value,
+            "p_generation": attempt.upload_generation,
         }
         try:
             response = await self._client.post(
-                "/rest/v1/rpc/reserve_source_upload",
+                "/rest/v1/rpc/reserve_source_upload_at_generation",
                 headers={"Authorization": f"Bearer {self._token.get_secret_value()}"},
                 json=payload,
             )

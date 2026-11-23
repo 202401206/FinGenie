@@ -1,0 +1,682 @@
+{
+  "workspace_id": "20000000-0000-4000-8000-000000000031",
+  "document_id": "30000000-0000-4000-8000-000000000031",
+  "document_type": "bank_statement",
+  "metadata": {
+    "company": null,
+    "currency": "INR",
+    "period_start": "2026-01-01",
+    "period_end": "2026-01-31",
+    "reporting_date": null,
+    "unit_scale": null
+  },
+  "analysis": {
+    "workspace_id": "20000000-0000-4000-8000-000000000031",
+    "document_type": "bank_statement",
+    "currency": "INR",
+    "reliability": "valid",
+    "metrics": [
+      {
+        "key": "total_credit",
+        "value": 5000,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "bank.total_credit.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000031",
+            "sheet_name": null,
+            "source_rows": [
+              6
+            ],
+            "field_paths": [
+              "transactions[0].credit"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "total_debit",
+        "value": 2500,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "bank.total_debit.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000031",
+            "sheet_name": null,
+            "source_rows": [
+              7,
+              8
+            ],
+            "field_paths": [
+              "transactions[1].debit",
+              "transactions[2].debit"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "net_cash_flow",
+        "value": 2500,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "bank.net_cash_flow.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000031",
+            "sheet_name": null,
+            "source_rows": [
+              6,
+              7,
+              8
+            ],
+            "field_paths": [
+              "transactions[0].credit",
+              "transactions[1].debit",
+              "transactions[2].debit"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "opening_balance",
+        "value": 10000,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "bank.opening_balance.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000031",
+            "sheet_name": null,
+            "source_rows": [
+              4
+            ],
+            "field_paths": [
+              "opening_balance"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "closing_balance",
+        "value": 12500,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "bank.closing_balance.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000031",
+            "sheet_name": null,
+            "source_rows": [
+              9
+            ],
+            "field_paths": [
+              "closing_balance"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "average_balance",
+        "value": 12661.290322580645161290322580645161290,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "dashboard.average_balance.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000031",
+            "sheet_name": null,
+            "source_rows": [
+              3,
+              4,
+              6,
+              7,
+              8,
+              9
+            ],
+            "field_paths": [
+              "period_start",
+              "period_end",
+              "opening_balance",
+              "closing_balance",
+              "transactions[0].date",
+              "transactions[0].credit",
+              "transactions[0].debit",
+              "transactions[0].balance",
+              "transactions[1].date",
+              "transactions[1].credit",
+              "transactions[1].debit",
+              "transactions[1].balance",
+              "transactions[2].date",
+              "transactions[2].credit",
+              "transactions[2].debit",
+              "transactions[2].balance"
+            ]
+          }
+        ]
+      }
+    ],
+    "warnings": []
+  },
+  "charts": [
+    {
+      "key": "daily_flows",
+      "unit": "INR",
+      "status": "available",
+      "reason": "Only observed transaction periods are shown. Omitted periods are gaps, not confirmed zero flows. Months may contain partial statement coverage.",
+      "series": [
+        {
+          "key": "credit",
+          "label": "Credit",
+          "points": [
+            {
+              "label": "2026-01-05",
+              "value": 5000,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    6
+                  ],
+                  "field_paths": [
+                    "transactions[0].date",
+                    "transactions[0].credit"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-10",
+              "value": 0,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    7
+                  ],
+                  "field_paths": [
+                    "transactions[1].date",
+                    "transactions[1].credit"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-15",
+              "value": 0,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[2].date",
+                    "transactions[2].credit"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "debit",
+          "label": "Debit",
+          "points": [
+            {
+              "label": "2026-01-05",
+              "value": 0,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    6
+                  ],
+                  "field_paths": [
+                    "transactions[0].date",
+                    "transactions[0].debit"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-10",
+              "value": 2000,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    7
+                  ],
+                  "field_paths": [
+                    "transactions[1].date",
+                    "transactions[1].debit"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-15",
+              "value": 500,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[2].date",
+                    "transactions[2].debit"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "net_flow",
+          "label": "Net Flow",
+          "points": [
+            {
+              "label": "2026-01-05",
+              "value": 5000,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    6
+                  ],
+                  "field_paths": [
+                    "transactions[0].date",
+                    "transactions[0].credit",
+                    "transactions[0].debit"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-10",
+              "value": -2000,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    7
+                  ],
+                  "field_paths": [
+                    "transactions[1].date",
+                    "transactions[1].credit",
+                    "transactions[1].debit"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-15",
+              "value": -500,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[2].date",
+                    "transactions[2].credit",
+                    "transactions[2].debit"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "monthly_flows",
+      "unit": "INR",
+      "status": "available",
+      "reason": "Only observed transaction periods are shown. Omitted periods are gaps, not confirmed zero flows. Months may contain partial statement coverage.",
+      "series": [
+        {
+          "key": "credit",
+          "label": "Credit",
+          "points": [
+            {
+              "label": "2026-01",
+              "value": 5000,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    6,
+                    7,
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[0].date",
+                    "transactions[0].credit",
+                    "transactions[1].date",
+                    "transactions[1].credit",
+                    "transactions[2].date",
+                    "transactions[2].credit"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "debit",
+          "label": "Debit",
+          "points": [
+            {
+              "label": "2026-01",
+              "value": 2500,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    6,
+                    7,
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[0].date",
+                    "transactions[0].debit",
+                    "transactions[1].date",
+                    "transactions[1].debit",
+                    "transactions[2].date",
+                    "transactions[2].debit"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "net_flow",
+          "label": "Net Flow",
+          "points": [
+            {
+              "label": "2026-01",
+              "value": 2500,
+              "reason": "Observed statement transactions only.",
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    6,
+                    7,
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[0].date",
+                    "transactions[0].credit",
+                    "transactions[0].debit",
+                    "transactions[1].date",
+                    "transactions[1].credit",
+                    "transactions[1].debit",
+                    "transactions[2].date",
+                    "transactions[2].credit",
+                    "transactions[2].debit"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "daily_balances",
+      "unit": "INR",
+      "status": "available",
+      "reason": "Use a step line. A verified balance carries forward between points.",
+      "series": [
+        {
+          "key": "balance",
+          "label": "End-of-day balance",
+          "points": [
+            {
+              "label": "2026-01-01",
+              "value": 10000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    4
+                  ],
+                  "field_paths": [
+                    "period_start",
+                    "opening_balance"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-05",
+              "value": 15000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    6
+                  ],
+                  "field_paths": [
+                    "transactions[0].date",
+                    "transactions[0].balance"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-10",
+              "value": 13000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    7
+                  ],
+                  "field_paths": [
+                    "transactions[1].date",
+                    "transactions[1].balance"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-15",
+              "value": 12500,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[2].date",
+                    "transactions[2].balance"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "2026-01-31",
+              "value": 12500,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    9
+                  ],
+                  "field_paths": [
+                    "period_end",
+                    "closing_balance"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "debit_categories",
+      "unit": "INR",
+      "status": "available",
+      "reason": "Description keywords classify purpose approximately. UPI alone stays in other.",
+      "series": [
+        {
+          "key": "debit",
+          "label": "Observed debits",
+          "points": [
+            {
+              "label": "food",
+              "value": 500,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    8
+                  ],
+                  "field_paths": [
+                    "transactions[2].description",
+                    "transactions[2].debit"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "housing",
+              "value": 2000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000031",
+                  "sheet_name": null,
+                  "source_rows": [
+                    7
+                  ],
+                  "field_paths": [
+                    "transactions[1].description",
+                    "transactions[1].debit"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "largest_inflows": [
+    {
+      "amount": 5000,
+      "unit": "INR",
+      "date": "2026-01-05",
+      "description": "Synthetic salary",
+      "source_refs": [
+        {
+          "document_id": "30000000-0000-4000-8000-000000000031",
+          "sheet_name": null,
+          "source_rows": [
+            6
+          ],
+          "field_paths": [
+            "transactions[0].date",
+            "transactions[0].description",
+            "transactions[0].credit"
+          ]
+        }
+      ]
+    }
+  ],
+  "largest_outflows": [
+    {
+      "amount": 2000,
+      "unit": "INR",
+      "date": "2026-01-10",
+      "description": "Synthetic rent",
+      "source_refs": [
+        {
+          "document_id": "30000000-0000-4000-8000-000000000031",
+          "sheet_name": null,
+          "source_rows": [
+            7
+          ],
+          "field_paths": [
+            "transactions[1].date",
+            "transactions[1].description",
+            "transactions[1].debit"
+          ]
+        }
+      ]
+    },
+    {
+      "amount": 500,
+      "unit": "INR",
+      "date": "2026-01-15",
+      "description": "Synthetic groceries",
+      "source_refs": [
+        {
+          "document_id": "30000000-0000-4000-8000-000000000031",
+          "sheet_name": null,
+          "source_rows": [
+            8
+          ],
+          "field_paths": [
+            "transactions[2].date",
+            "transactions[2].description",
+            "transactions[2].debit"
+          ]
+        }
+      ]
+    }
+  ]
+}
