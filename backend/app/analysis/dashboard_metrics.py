@@ -295,8 +295,17 @@ def _daily_balances(statement: ParsedBankStatement, data: dict) -> tuple[dict, d
     elif any(
         row.get("reason")
         in {"insufficient_columns_for_transaction", "invalid_or_missing_date"}
+        and not (
+            re.search(r"\b(?:note|notice)\b", str(row.get("raw_label", "")), re.I)
+            and not re.search(
+                r"\d",
+                str(row.get("raw_label", "")) + " " + str(row.get("raw_value", "")),
+            )
+        )
         for row in statement.unmapped
     ):
+        # Supported parsers retain short nonfinancial notices under these reasons.
+        # Ambiguous rows and notices containing numeric content remain unavailable.
         reason = "Unresolved transaction rows prevent complete balance coverage."
     else:
         reconciliation = calculate_balance_reconciliation(data)

@@ -1,0 +1,311 @@
+{
+  "workspace_id": "20000000-0000-4000-8000-000000000032",
+  "document_id": "30000000-0000-4000-8000-000000000032",
+  "document_type": "balance_sheet",
+  "metadata": {
+    "company": "Synthetic Demo Company",
+    "currency": "INR",
+    "period_start": null,
+    "period_end": null,
+    "reporting_date": "2026-01-31",
+    "unit_scale": 100000
+  },
+  "analysis": {
+    "workspace_id": "20000000-0000-4000-8000-000000000032",
+    "document_type": "balance_sheet",
+    "currency": "INR",
+    "reliability": "valid",
+    "metrics": [
+      {
+        "key": "working_capital",
+        "value": 7000000,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "balance_sheet.working_capital.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000032",
+            "sheet_name": null,
+            "source_rows": [
+              3,
+              6,
+              7,
+              12
+            ],
+            "field_paths": [
+              "unit_scale",
+              "assets.current[0].value",
+              "assets.current[1].value",
+              "liabilities.current[0].value"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "balance_difference",
+        "value": 0,
+        "unit": "INR",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "balance_sheet.balance_difference.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000032",
+            "sheet_name": null,
+            "source_rows": [
+              3,
+              10,
+              16,
+              20
+            ],
+            "field_paths": [
+              "unit_scale",
+              "assets.total",
+              "liabilities.total",
+              "equity.total"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "current_ratio",
+        "value": 1.875,
+        "unit": "ratio",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "balance_sheet.current_ratio.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000032",
+            "sheet_name": null,
+            "source_rows": [
+              6,
+              7,
+              12
+            ],
+            "field_paths": [
+              "assets.current[0].value",
+              "assets.current[1].value",
+              "liabilities.current[0].value"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "debt_to_equity",
+        "value": 0.22222222222222222222222222222222222222,
+        "unit": "ratio",
+        "status": "available",
+        "reason": null,
+        "calculation_id": "dashboard.debt_to_equity.v1",
+        "source_refs": [
+          {
+            "document_id": "30000000-0000-4000-8000-000000000032",
+            "sheet_name": null,
+            "source_rows": [
+              3,
+              12,
+              15,
+              16,
+              20
+            ],
+            "field_paths": [
+              "unit_scale",
+              "liabilities.total",
+              "equity.total",
+              "liabilities.current[0].value",
+              "liabilities.non_current[0].value"
+            ]
+          }
+        ]
+      }
+    ],
+    "warnings": []
+  },
+  "charts": [
+    {
+      "key": "reported_totals",
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "series": [
+        {
+          "key": "reported",
+          "label": "Reported totals",
+          "points": [
+            {
+              "label": "assets",
+              "value": 30000000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000032",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    10
+                  ],
+                  "field_paths": [
+                    "unit_scale",
+                    "assets.total"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "liabilities",
+              "value": 12000000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000032",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    16
+                  ],
+                  "field_paths": [
+                    "unit_scale",
+                    "liabilities.total"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "equity",
+              "value": 18000000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000032",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    20
+                  ],
+                  "field_paths": [
+                    "unit_scale",
+                    "equity.total"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "balance_components",
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "series": [
+        {
+          "key": "components",
+          "label": "Current and non-current",
+          "points": [
+            {
+              "label": "assets_current",
+              "value": 15000000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000032",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    6,
+                    7,
+                    9,
+                    10
+                  ],
+                  "field_paths": [
+                    "unit_scale",
+                    "assets.total",
+                    "assets.current[0].value",
+                    "assets.current[1].value",
+                    "assets.non_current[0].value"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "assets_non_current",
+              "value": 15000000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000032",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    6,
+                    7,
+                    9,
+                    10
+                  ],
+                  "field_paths": [
+                    "unit_scale",
+                    "assets.total",
+                    "assets.current[0].value",
+                    "assets.current[1].value",
+                    "assets.non_current[0].value"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "liabilities_current",
+              "value": 8000000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000032",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    12,
+                    15,
+                    16
+                  ],
+                  "field_paths": [
+                    "unit_scale",
+                    "liabilities.total",
+                    "liabilities.current[0].value",
+                    "liabilities.non_current[0].value"
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "liabilities_non_current",
+              "value": 4000000,
+              "reason": null,
+              "source_refs": [
+                {
+                  "document_id": "30000000-0000-4000-8000-000000000032",
+                  "sheet_name": null,
+                  "source_rows": [
+                    3,
+                    12,
+                    15,
+                    16
+                  ],
+                  "field_paths": [
+                    "unit_scale",
+                    "liabilities.total",
+                    "liabilities.current[0].value",
+                    "liabilities.non_current[0].value"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "largest_inflows": [],
+  "largest_outflows": []
+}

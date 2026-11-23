@@ -502,6 +502,33 @@ def test_missing_or_invalid_optional_source_locations_do_not_fabricate_rows():
     assert metric(invalid)["source_refs"] == []
 
 
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "insufficient_columns_for_transaction",
+        "invalid_or_missing_date",
+    ],
+)
+def test_parser_notes_do_not_hide_verified_balances_but_numeric_unknown_rows_do(reason):
+    statement = bank(
+        unmapped=[
+            {
+                "source_row": 10,
+                "raw_label": "Unrecognized export note",
+                "raw_value": "Synthetic note only",
+                "reason": reason,
+            }
+        ]
+    )
+    assert metric(bank_dashboard_metrics(statement))["value"] == 98
+    statement.unmapped[0]["raw_value"] = "Unresolved movement 100"
+    assert metric(bank_dashboard_metrics(statement))["value"] is None
+    statement.unmapped[0].update(raw_label="Notice 100", raw_value="")
+    assert metric(bank_dashboard_metrics(statement))["value"] is None
+    statement.unmapped[0].update(raw_label="Unknown row", raw_value="unclear")
+    assert metric(bank_dashboard_metrics(statement))["value"] is None
+
+
 def test_inventory_uses_the_supported_parser_classification():
     statement = balance()
     statement.assets.current[1].canonical_field = "inventory"

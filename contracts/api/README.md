@@ -174,6 +174,30 @@ This one-item response illustrates the shape independently of the three-row fixt
 Balance-sheet workspaces return 409 `unsupported_document_type`. Date/category
 filters can be proposed when their UI is designed; none are promised here.
 
+## Sprint 2 dashboard
+
+`GET /api/workspaces/{workspace_id}/dashboard` reads the signed-in user's saved
+document. Send Authorization with the bearer access token and no body. The 200
+response contains workspace_id, document_id, document_type, nullable metadata,
+the analysis envelope, typed charts, and separate largest_inflows/largest_outflows.
+
+See the complete [bank dashboard](../examples/bank-dashboard.json) and
+[balance sheet dashboard](../examples/balance-sheet-dashboard.json) examples, and
+the [frontend handoff](../../docs/sprint-2-dashboard-api-handoff.md) for all keys,
+formulas, units, source references and limitations.
+
+Charts cover the entire saved document. Bank flow charts show observed dates
+and months. Missing periods are gaps. Daily balances require verified chronology.
+Balance charts show a current snapshot. Monetary output uses base source currency,
+with balance unit_scale applied once, and ratios remain unscaled. Null values
+and unavailable charts have explanations. Preserve reliability and warnings.
+
+Missing and foreign workspaces both return 404 workspace_not_found. Unparsed
+documents return 409 document_not_ready. Invalid UUIDs return 422. Missing or
+rejected tokens return 401, and unavailable dependencies or invalid dashboard
+results return safe 503 errors. Incomplete or unreliable parsed inputs return
+200 with their warnings and unavailable sections.
+
 ## Sprint 2: analysis and summary
 
 See the [Sprint 2 frontend handoff](../../docs/sprint-2-api-handoff.md) for request examples and local verification.
