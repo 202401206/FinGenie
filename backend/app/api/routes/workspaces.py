@@ -1,25 +1,19 @@
 """Authenticated workspace HTTP routes."""
 
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import date
 from typing import Annotated
 from uuid import UUID
 
 import simplejson
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Query, Response
 
-from app.core.security import unauthorized
-from app.db.dependencies import get_workspace_repository
-from app.db.errors import (
-    DatabaseUnauthorized,
-    DatabaseUnavailable,
-    DocumentNotReady,
-    UnsupportedDocumentType,
-    WorkspaceNotFound,
+from app.api.workspace_dependencies import (
+    Repository,
+    read_owned_document,
+    workspace_errors,
 )
-from app.db.repositories.workspaces import WorkspaceRepository
 from app.schemas.analysis_responses import WorkspaceAnalysisResponse
+from app.schemas.error_responses import ErrorResponse
 from app.schemas.workspace_responses import (
     TransactionPageResponse,
     WorkspaceDetailsResponse,
@@ -29,38 +23,8 @@ from app.services.workspace_analysis import build_workspace_analysis
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
-Repository = Annotated[WorkspaceRepository, Depends(get_workspace_repository)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
-
-
-@contextmanager
-def workspace_errors() -> Iterator[None]:
-    try:
-        yield
-    except DatabaseUnauthorized:
-        raise unauthorized() from None
-    except DatabaseUnavailable:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "database_unavailable",
-                "message": "Workspace data is unavailable.",
-            },
-        ) from None
-    except WorkspaceNotFound:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "workspace_not_found", "message": "Workspace not found."},
-        ) from None
-    except UnsupportedDocumentType:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "unsupported_document_type",
-                "message": "Transactions are available only for bank statements.",
-            },
-        ) from None
 
 
 @router.get("", response_model=WorkspacePageResponse)
@@ -106,19 +70,17 @@ async def list_transactions(
     )
 
 
-@router.get("/{id}/analysis", response_model=WorkspaceAnalysisResponse)
+@router.get(
+    "/{id}/analysis",
+    response_model=WorkspaceAnalysisResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Authentication required."},
+        404: {"model": ErrorResponse, "description": "Workspace not found."},
+        409: {"model": ErrorResponse, "description": "Parsed document is not ready."},
+        503: {"model": ErrorResponse, "description": "Workspace data is unavailable."},
+    },
+)
 async def get_workspace_analysis(id: UUID, repository: Repository) -> Response:
-    with workspace_errors():
-        try:
-            context = await repository.get_parsed_document(id)
-        except DocumentNotReady:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "document_not_ready",
-                    "message": "The document is not ready for analysis.",
-                },
-            ) from None
-
+    context = await read_owned_document(id, repository)
     payload = build_workspace_analysis(context)
     return Response(content=payload.to_wire_json(), media_type="application/json")

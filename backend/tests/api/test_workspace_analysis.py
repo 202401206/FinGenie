@@ -93,6 +93,20 @@ def test_missing_or_foreign_workspace_does_not_read_document(analysis_client):
     assert state["reads"] == ["/rest/v1/workspaces"] * 2
 
 
+def test_bank_analysis_with_missing_currency_reports_unavailable_metrics(
+    analysis_client,
+):
+    client, state = analysis_client
+    state["rows"][0]["parsed_json"]["currency"] = None
+    response = client.get(URL, headers=OWNER_HEADERS)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["currency"] is None
+    assert result["reliability"] == "insufficient_data"
+    assert all(metric["unit"] == "unknown" for metric in result["metrics"])
+    assert all(metric["status"] == "unavailable" for metric in result["metrics"])
+
+
 def test_authentication_and_uuid_validation_precede_database_reads(analysis_client):
     client, state = analysis_client
     assert client.get(URL).status_code == 401

@@ -5,9 +5,18 @@ from app.analysis.bank_kpis import analyze_bank_statement
 from app.db.parsed_read_models import ParsedBalanceSheet, ParsedDocumentContext
 from app.schemas.analysis_responses import WorkspaceAnalysisResponse
 
+BALANCE_REFERENCE_REASONS = (
+    "prior_period_value",
+    "reported_subtotal",
+    "unrecognized_note",
+    "repeated_reported_value",
+)
+
 
 def build_workspace_analysis(
     context: ParsedDocumentContext,
+    *,
+    include_bank_balances: bool = False,
 ) -> WorkspaceAnalysisResponse:
     statement = context.parsed_json
     data = statement.model_dump(mode="python")
@@ -22,11 +31,15 @@ def build_workspace_analysis(
 
         # These two KPIs sum classified current items. An empty section or
         # unresolved line cannot establish a complete current-assets/liabilities sum.
+        # The parser also retains reference rows that do not change the current totals.
         current_items = statement.assets.current + statement.liabilities.current
         incomplete_current = (
             not statement.assets.current
             or not statement.liabilities.current
-            or bool(statement.unmapped)
+            or any(
+                item.get("reason") not in BALANCE_REFERENCE_REASONS
+                for item in statement.unmapped
+            )
             or any(
                 item.value is None or not item.canonical_field for item in current_items
             )
@@ -55,6 +68,11 @@ def build_workspace_analysis(
         if metadata_reason or (incomplete_current and result["reliability"] == "valid"):
             result["reliability"] = "insufficient_data"
     else:
-        result = analyze_bank_statement(data, workspace_id)
+        result = analyze_bank_statement(
+            data, workspace_id, include_balance_metrics=include_bank_balances
+        )
+        for metric in result["metrics"]:
+            if metric["unit"] is None:
+                metric["unit"] = "unknown"
 
     return WorkspaceAnalysisResponse.model_validate(result)
