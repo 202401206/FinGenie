@@ -4,14 +4,14 @@ from collections.abc import Iterator
 from unittest.mock import patch
 from uuid import UUID
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.ai.chatbot import AIValidationError
 from app.ai.providers.groq_provider import GroqAPIError, GroqConfigurationError
-from app.core.security import require_user
+from app.core.security import get_auth_client
 from app.main import app
-from app.schemas.responses import CurrentUser
 
 BANK_WS = "20000000-0000-4000-8000-000000000001"
 BALANCE_SHEET_WS = "20000000-0000-4000-8000-000000000002"
@@ -21,12 +21,25 @@ TEST_USER_ID = UUID("10000000-0000-4000-8000-000000000001")
 
 @pytest.fixture
 def auth_client() -> Iterator[TestClient]:
-    """TestClient pre-authenticated with verified test user."""
+    """Exercise the shared Auth dependency with a synthetic verified response."""
+
+    async def synthetic_auth():
+        async with httpx.AsyncClient(
+            base_url="https://synthetic.supabase.co",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"id": str(TEST_USER_ID)})
+            ),
+        ) as client:
+            yield client
+
     previous = app.dependency_overrides.copy()
-    app.dependency_overrides[require_user] = lambda: CurrentUser(id=TEST_USER_ID)
-    with TestClient(app) as client:
-        yield client
-    app.dependency_overrides = previous
+    app.dependency_overrides[get_auth_client] = synthetic_auth
+    try:
+        with TestClient(app) as client:
+            client.headers["Authorization"] = "Bearer synthetic-ai-test"
+            yield client
+    finally:
+        app.dependency_overrides = previous
 
 
 # --- Authentication Security Tests (Leader Review Point 1) ---
