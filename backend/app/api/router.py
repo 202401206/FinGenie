@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.routes.ai import router as ai_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.health import router as health_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.upload import create_upload_router
@@ -18,6 +19,7 @@ api_router.include_router(auth_router)
 api_router.include_router(settings_router)
 api_router.include_router(ai_router)
 api_router.include_router(workspaces_router)
+api_router.include_router(dashboard_router)
 api_router.include_router(upload_attempts_router)
 api_router.include_router(
     create_upload_router(parse_bank_statement, balance_parser=parse_balance_sheet)
