@@ -6,6 +6,7 @@ No network, hosted SQL, credentials, Git writes or live AI calls are performed.
 import argparse
 import importlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -123,7 +124,7 @@ def api_prerequisites() -> list[dict[str, object]]:
     return results
 
 
-def run_local_checks() -> list[dict[str, object]]:
+def run_local_checks(*, include_acceptance: bool = True) -> list[dict[str, object]]:
     npm = shutil.which("npm.cmd" if sys.platform == "win32" else "npm")
     node = shutil.which("node")
     if (
@@ -139,7 +140,15 @@ def run_local_checks() -> list[dict[str, object]]:
     commands = [
         (
             "Backend tests",
-            [sys.executable, "-m", "pytest", "-q", "--tb=short"],
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "--tb=short",
+                "--strict-markers",
+                f"--junitxml={ROOT / 'test-results/backend.xml'}",
+            ],
             BACKEND,
         ),
         (
@@ -179,15 +188,56 @@ def run_local_checks() -> list[dict[str, object]]:
             ROOT,
         ),
     ]
+    reports = [ROOT / "test-results/backend.xml"]
+    if include_acceptance:
+        reports.append(ROOT / "test-results/sprint-2-acceptance.xml")
+        commands.append(
+            (
+                "Parser and owned-analysis acceptance",
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "--strict-markers",
+                    "verification/test_balance_parser_persistence.py",
+                    "verification/test_owned_analysis_api.py",
+                    f"--junitxml={reports[-1]}",
+                ],
+                BACKEND,
+            )
+        )
+    commands.append(
+        (
+            "Complete test reports without skips",
+            [
+                sys.executable,
+                str(BACKEND / "scripts/check_test_results.py"),
+                *(str(path) for path in reports),
+            ],
+            ROOT,
+        )
+    )
+
+    # Verification must remain offline even when the developer's .env has keys.
+    environment = os.environ.copy()
+    for name in (
+        "FINGENIE_GROQ_API_KEY",
+        "FINGENIE_SUPABASE_URL",
+        "FINGENIE_SUPABASE_PUBLISHABLE_KEY",
+    ):
+        environment[name] = ""
     results = []
     for label, command, directory in commands:
         print(f"\nRunning: {label}", flush=True)
-        code = subprocess.run(command, cwd=directory, check=False).returncode
+        code = subprocess.run(
+            command, cwd=directory, env=environment, check=False
+        ).returncode
         results.append({"check": label, "passed": code == 0, "exit_code": code})
     return results
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -205,8 +255,12 @@ def main() -> int:
         type=Path,
         help="Optional JSON evidence file. Contains no tokens or financial payloads.",
     )
-    arguments = parser.parse_args()
-    local = [] if arguments.readiness_only else run_local_checks()
+    arguments = parser.parse_args(argv)
+    local = (
+        []
+        if arguments.readiness_only
+        else run_local_checks(include_acceptance=not arguments.local_only)
+    )
     prerequisites = api_prerequisites()
     report = {
         "checked_at": datetime.now(UTC).isoformat(),

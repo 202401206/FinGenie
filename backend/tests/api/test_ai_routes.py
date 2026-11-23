@@ -5,18 +5,20 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.ai.chatbot import AIValidationError
 from app.ai.providers.groq_provider import GroqAPIError, GroqConfigurationError
+from app.core.security import get_auth_client
 from app.db.dependencies import get_workspace_repository
 from app.db.errors import DatabaseUnavailable, DocumentNotReady, WorkspaceNotFound
 from app.db.models import WorkspaceRecord
 from app.db.parsed_models import ParsedBankStatement
 from app.db.parsed_read_models import ParsedBalanceSheet, ParsedDocumentContext
 from app.main import app
-from tests.db.test_parsed_document_reads import DOCUMENT, document, workspace
+from tests.db.test_parsed_document_reads import DOCUMENT, OWNER, document, workspace
 
 BANK_WS = "20000000-0000-4000-8000-000000000007"
 BALANCE_SHEET_WS = "20000000-0000-4000-8000-000000000008"
@@ -33,7 +35,16 @@ def ai_contexts():
 
 @pytest.fixture
 def auth_client(monkeypatch, ai_contexts) -> Iterator[TestClient]:
-    """Inject explicit owned results. Use only offline providers in route tests."""
+    """Verify synthetic Auth, then supply owned results and offline providers."""
+
+    async def synthetic_auth():
+        async with httpx.AsyncClient(
+            base_url="https://synthetic.supabase.co",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"id": str(OWNER)})
+            ),
+        ) as client:
+            yield client
 
     async def read(workspace_id: UUID) -> ParsedDocumentContext:
         entry = ai_contexts.get(str(workspace_id))
@@ -53,6 +64,7 @@ def auth_client(monkeypatch, ai_contexts) -> Iterator[TestClient]:
             parsed_json=model.model_validate(row["parsed_json"]),
         )
 
+    monkeypatch.setitem(app.dependency_overrides, get_auth_client, synthetic_auth)
     monkeypatch.setitem(
         app.dependency_overrides,
         get_workspace_repository,
@@ -64,6 +76,7 @@ def auth_client(monkeypatch, ai_contexts) -> Iterator[TestClient]:
             lambda: SimpleNamespace(is_configured=False),
         )
     with TestClient(app) as client:
+        client.headers["Authorization"] = "Bearer synthetic-ai-test"
         yield client
 
 

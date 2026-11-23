@@ -1,6 +1,6 @@
 """Settings shared by local development, Supabase authentication, and AI services."""
 
-from pydantic import AnyHttpUrl, SecretStr, field_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +9,24 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     supabase_url: AnyHttpUrl | None = None
     supabase_publishable_key: SecretStr | None = None
+
+    rate_limit_ai_requests: int = Field(default=10, ge=1, le=10000)
+    rate_limit_upload_requests: int = Field(default=5, ge=1, le=10000)
+    rate_limit_window_seconds: int = Field(default=60, ge=1, le=86400)
+    rate_limit_max_buckets: int = Field(default=10000, ge=1, le=100000)
+
+    @field_validator(
+        "rate_limit_ai_requests",
+        "rate_limit_upload_requests",
+        "rate_limit_window_seconds",
+        "rate_limit_max_buckets",
+        mode="before",
+    )
+    @classmethod
+    def require_integer_limits(cls, value: object) -> object:
+        if isinstance(value, (bool, float)):
+            raise ValueError("Request limits must be positive whole numbers")
+        return value
 
     @field_validator("supabase_url", "supabase_publishable_key", mode="before")
     @classmethod
