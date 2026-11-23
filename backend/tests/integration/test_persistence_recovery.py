@@ -111,7 +111,10 @@ class LocalSupabase:
         path = request.url.path
         if path.startswith("/rest/v1/rpc/"):
             function = path.rsplit("/", 1)[1]
-            if function == "finalize_bank_statement" and self.reject_save:
+            if self.reject_save and function in {
+                "finalize_bank_statement",
+                "finalize_balance_sheet",
+            }:
                 return httpx.Response(503)
             arguments = {
                 "list_upload_attempts": [("limit", "integer"), ("offset", "integer")],
@@ -585,7 +588,15 @@ def api_database_client(database):
         app.dependency_overrides = previous
 
 
-def statement_upload(client, content, kind="csv", token="token-a"):
+def statement_upload(
+    client,
+    content,
+    kind="csv",
+    token="token-a",
+    *,
+    user_type="personal",
+    document_type="bank_statement",
+):
     mime = (
         "text/csv"
         if kind == "csv"
@@ -594,12 +605,12 @@ def statement_upload(client, content, kind="csv", token="token-a"):
     return client.post(
         "/api/upload",
         headers={"Authorization": f"Bearer {token}"},
-        data={"user_type": "personal", "document_type": "bank_statement"},
+        data={"user_type": user_type, "document_type": document_type},
         files={"file": (f"synthetic.{kind}", content, mime)},
     )
 
 
-def layout_bytes(layout, kind):
+def layout_bytes(layout, kind, *, document_type="bank_statement"):
     import csv
     import io
 
@@ -610,6 +621,8 @@ def layout_bytes(layout, kind):
         if layout == "a"
         else "synthetic_bank_layout_b.csv"
     )
+    if document_type == "balance_sheet":
+        name = f"synthetic_balance_sheet_layout_{layout}.csv"
     content = (ROOT / "backend/tests/parsers/fixtures" / name).read_bytes()
     if kind == "csv":
         return content
@@ -678,37 +691,182 @@ def test_public_upload_reads_and_two_user_isolation(api_database_client, layout,
 
 
 @pytest.mark.parametrize(
+    "layout,currency,scale,reporting_date,first_value",
+    [
+        ("a", "INR", 100_000, "2026-01-31", 100),
+        ("b", "USD", 1_000_000, "2026-03-31", 500),
+    ],
+)
+@pytest.mark.parametrize("kind", ["csv", "xlsx"])
+def test_business_balance_sheet_upload_saves_reported_data(
+    api_database_client, layout, currency, scale, reporting_date, first_value, kind
+):
+    client, server = api_database_client
+    content = layout_bytes(layout, kind, document_type="balance_sheet")
+    response = statement_upload(
+        client, content, kind, user_type="business", document_type="balance_sheet"
+    )
+    assert response.status_code == 201, response.text
+    result = response.json()
+    assert set(result) == {"workspace", "document"}
+    assert set(result["document"]) == {"id", "status"}
+    workspace = result["workspace"]
+    document = result["document"]
+    assert workspace["document_type"] == "balance_sheet"
+    assert workspace["user_type"] == "business"
+    assert workspace["name"].startswith("Balance sheet ")
+    assert document["status"] == "parsed"
+    assert list(server.files.values()) == [content]
+
+    rows = server.query(
+        "select parsed_json::text as parsed, currency, period_start, period_end "
+        "from public.documents where id = $1::uuid",
+        [document["id"]],
+        OWNER,
+    )["rows"]
+    (saved,) = rows
+    assert saved["period_start"] is saved["period_end"] is None
+    assert saved["currency"] == currency
+    parsed = json.loads(saved["parsed"], parse_float=Decimal)
+    assert (parsed["currency"], parsed["unit_scale"]) == (currency, scale)
+    assert parsed["reporting_date"] == reporting_date
+    assert parsed["source_locations"]["reporting_date"]["source_row"] == 2
+    assert parsed["source_metadata"]["document_id"] == document["id"]
+    assert parsed["source_metadata"]["sheet_name"] == (
+        "Synthetic account" if kind == "xlsx" else None
+    )
+    cash = parsed["assets"]["current"][0]
+    assert (cash["value"], cash["source_row"]) == (first_value, 6)
+    if layout == "b":
+        assert {
+            "source_row": 6,
+            "raw_label": "Cash and Cash Equivalents",
+            "raw_value": "2025-03-31: 450",
+            "reason": "prior_period_value",
+        } in parsed["unmapped"]
+    transactions = server.query(
+        "select count(*)::int as total from public.transactions where document_id=$1::uuid",
+        [document["id"]],
+        OWNER,
+    )
+    assert transactions["rows"] == [{"total": 0}]
+
+
+def test_balance_sheet_upload_preserves_unknown_metadata_and_decimal(
+    api_database_client,
+):
+    client, server = api_database_client
+    content = layout_bytes("a", "csv", document_type="balance_sheet")
+    content = (
+        b"\n".join(
+            line for line in content.splitlines() if not line.startswith(b"Currency:")
+        )
+        .replace(b"Cash,100", b"Cash,100.1234567890123456789")
+        .replace(b"Receivables,50", b"Receivables,")
+    )
+    response = statement_upload(
+        client, content, user_type="business", document_type="balance_sheet"
+    )
+    assert response.status_code == 201, response.text
+    result = server.query(
+        "select currency, parsed_json::text as parsed from public.documents where id=$1::uuid",
+        [response.json()["document"]["id"]],
+        OWNER,
+    )
+    saved = result["rows"][0]
+    parsed = json.loads(saved["parsed"], parse_float=Decimal)
+    assert saved["currency"] is parsed["currency"] is parsed["unit_scale"] is None
+    assert [row["value"] for row in parsed["assets"]["current"]] == [
+        Decimal("100.1234567890123456789"),
+        None,
+    ]
+
+
+@pytest.mark.parametrize(
+    "user_type,expected_code",
+    [
+        ("personal", "unsupported_document_type"),
+        ("business", "statement_parse_failed"),
+    ],
+)
+def test_rejected_balance_sheet_does_not_write(
+    api_database_client, user_type, expected_code
+):
+    client, server = api_database_client
+    counts = """
+        select (select count(*)::int from public.workspaces) as workspaces,
+               (select count(*)::int from public.documents) as documents,
+               (select count(*)::int from public.upload_attempts) as attempts
+    """
+    before = server.query(counts, user=OWNER)["rows"]
+    content = layout_bytes("a", "csv", document_type="balance_sheet")
+    if user_type == "business":
+        content = content.replace(b"2026-01-31", b"invalid-synthetic-date")
+    response = statement_upload(
+        client, content, user_type=user_type, document_type="balance_sheet"
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == expected_code
+    assert "invalid-synthetic-date" not in response.text
+    assert not server.files
+    assert server.query(counts, user=OWNER)["rows"] == before
+
+
+@pytest.mark.parametrize("document_type", ["bank_statement", "balance_sheet"])
+@pytest.mark.parametrize(
     "fault,status,remaining",
     [
-        ("finalize_bank_statement", 201, True),
+        ("finalize", 201, True),
         ("reserve_source_upload_at_generation", 503, False),
         ("upload", 503, False),
         ("save_failure", 503, False),
         ("cleanup_failure", 503, True),
     ],
 )
-def test_public_upload_real_sql_recovery(api_database_client, fault, status, remaining):
+def test_public_upload_real_sql_recovery(
+    api_database_client, document_type, fault, status, remaining
+):
     client, server = api_database_client
     before = server.query("select id::text from public.workspaces", user=OWNER)["rows"]
     if fault in {"save_failure", "cleanup_failure"}:
         server.reject_save = True
         server.reject_delete = fault == "cleanup_failure"
     else:
-        server.timeout_after = fault
-    response = statement_upload(client, layout_bytes("a", "csv"))
+        server.timeout_after = (
+            f"finalize_{document_type}" if fault == "finalize" else fault
+        )
+    content = layout_bytes("a", "csv", document_type=document_type)
+    response = statement_upload(
+        client,
+        content,
+        user_type="business" if document_type == "balance_sheet" else "personal",
+        document_type=document_type,
+    )
     assert response.status_code == status, response.text
     assert bool(server.files) is remaining
     after = server.query("select id::text from public.workspaces", user=OWNER)["rows"]
     assert len(after) - len(before) == (1 if remaining else 0)
     assert "file_path" not in response.text
     if status == 201:
-        workspace_id = response.json()["workspace"]["id"]
-        headers = {"Authorization": "Bearer token-a"}
-        page = client.get(
-            f"/api/workspaces/{workspace_id}/transactions", headers=headers
+        body = response.json()
+        assert body["document"]["status"] == "parsed"
+        assert list(server.files.values()) == [content]
+        workspace_id = body["workspace"]["id"]
+        journal = server.query(
+            "select status, (receipt->>'transaction_count')::int as transaction_count "
+            "from public.upload_attempts where workspace_id = $1::uuid",
+            [workspace_id],
+            OWNER,
         )
-        assert page.status_code == 200
-        assert page.json()["total"] == 3
+        count = 0 if document_type == "balance_sheet" else 3
+        assert journal["rows"] == [{"status": "completed", "transaction_count": count}]
+        if document_type == "bank_statement":
+            page = client.get(
+                f"/api/workspaces/{workspace_id}/transactions",
+                headers={"Authorization": "Bearer token-a"},
+            )
+            assert page.status_code == 200
+            assert page.json()["total"] == 3
         return
     if fault == "cleanup_failure":
         assert response.json()["detail"]["code"] == "cleanup_required"
@@ -787,3 +945,25 @@ def test_footer_words_in_narration_survive_the_complete_save_and_read(
     ]
     assert [item["source_row"] for item in page.json()["items"]] == [2, 3]
     assert content in server.files.values()
+
+
+def test_uploaded_bank_statement_feeds_owned_analysis(api_database_client):
+    client, _ = api_database_client
+    uploaded = statement_upload(client, layout_bytes("a", "csv"))
+    assert uploaded.status_code == 201
+    workspace_id = uploaded.json()["workspace"]["id"]
+    document_id = uploaded.json()["document"]["id"]
+    url = f"/api/workspaces/{workspace_id}/analysis"
+
+    result = client.get(url, headers={"Authorization": "Bearer token-a"})
+    assert result.status_code == 200, result.text
+    payload = json.loads(result.content, parse_float=Decimal)
+    assert payload["workspace_id"] == workspace_id
+    assert payload["reliability"] == "valid"
+    metric = next(item for item in payload["metrics"] if item["key"] == "net_cash_flow")
+    assert metric["value"] == 2500
+    assert metric["source_refs"][0]["document_id"] == document_id
+    assert metric["source_refs"][0]["source_rows"] == [6, 7, 8]
+    assert (
+        client.get(url, headers={"Authorization": "Bearer token-b"}).status_code == 404
+    )

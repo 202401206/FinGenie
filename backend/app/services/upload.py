@@ -1,4 +1,4 @@
-"""One upload workflow, with an explicitly supplied bank parser."""
+"""Shared bank statement and balance sheet upload workflow."""
 
 from datetime import UTC, date, datetime
 from typing import Protocol
@@ -16,10 +16,14 @@ from app.db.errors import (
     WorkspaceNotFound,
 )
 from app.db.parsed_models import ParsedBankStatement, ParsedSaveReceipt
-from app.db.repositories.parsed_documents import ParsedDocumentRepository
+from app.db.repositories.parsed_documents import (
+    ParsedDocumentRepository,
+    validate_document_data,
+)
 from app.db.repositories.upload_attempts import UploadAttemptNotFound
 from app.db.repositories.workspaces import WorkspaceRepository
-from app.parsers.errors import BankStatementParserError
+from app.parsers.errors import StatementParserError
+from app.schemas.common import DocumentType
 from app.schemas.upload_responses import UploadResponse
 from app.services.source_dependencies import SourceUploadAccess
 from app.services.source_errors import (
@@ -41,7 +45,7 @@ from app.services.upload_validation import (
 )
 
 
-class BankParser(Protocol):
+class StatementParser(Protocol):
     def __call__(
         self, content: bytes, *, file_kind: str, document_id: UUID
     ) -> BaseModel: ...
@@ -78,12 +82,15 @@ def validate_parsed(
     model: BaseModel, attempt: SourceAttempt, policy: UploadPolicy
 ) -> dict[str, object]:
     try:
-        statement = ParsedBankStatement.model_validate(
-            model.model_dump(mode="python", warnings="error")
+        statement = validate_document_data(
+            attempt.document_type, model.model_dump(mode="python", warnings="error")
         )
         if statement.source_metadata.document_id != attempt.document_id:
             raise ValueError()
-        if len(statement.transactions) > policy.max_rows:
+        if (
+            isinstance(statement, ParsedBankStatement)
+            and len(statement.transactions) > policy.max_rows
+        ):
             raise ValueError()
         payload = statement.model_dump(mode="python")
         # Validate unknown fields too, before any reservation. Keep Decimal intact.
@@ -105,10 +112,15 @@ def checked_receipt(
         receipt = ParsedSaveReceipt.model_validate(value)
     except ValueError:
         raise SourceOutcomeUnknown("finalization") from None
+    expected_count = (
+        len(parsed["transactions"])
+        if attempt.document_type == DocumentType.BANK_STATEMENT
+        else 0
+    )
     if (
         receipt.workspace_id != attempt.workspace_id
         or receipt.document_id != attempt.document_id
-        or receipt.transaction_count != len(parsed["transactions"])
+        or receipt.transaction_count != expected_count
     ):
         raise SourceOutcomeUnknown("finalization")
     return receipt
@@ -149,16 +161,18 @@ def original_failure(error: Exception, attempt: SourceAttempt) -> UploadProcessi
 class UploadService:
     def __init__(
         self,
-        parser: BankParser,
+        bank_parser: StatementParser,
         access: SourceUploadAccess,
         save_repository: ParsedDocumentRepository,
         recovery: UploadRecoveryService,
         workspace_repository: WorkspaceRepository,
         *,
+        balance_parser: StatementParser,
         policy: UploadPolicy = DEFAULT_POLICY,
         attempts: UploadAttemptService | None = None,
     ):
-        self.parser = parser
+        self.bank_parser = bank_parser
+        self.balance_parser = balance_parser
         self.access = access
         self.save_repository = save_repository
         self.recovery = recovery
@@ -172,6 +186,12 @@ class UploadService:
         upload = await validate_upload(
             file, user_type=user_type, document_type=document_type, policy=self.policy
         )
+        if upload.document_type == DocumentType.BALANCE_SHEET:
+            parser = self.balance_parser
+            label = "Balance sheet"
+        else:
+            parser = self.bank_parser
+            label = "Bank statement"
         attempt = SourceAttempt(
             user_id=self.access.user.id,
             upload_generation=self.access.upload_generation,
@@ -179,16 +199,16 @@ class UploadService:
             document_type=upload.document_type,
             original_filename=upload.filename,
             kind=upload.kind,
-            name=f"Bank statement {datetime.now(UTC).date().isoformat()}",
+            name=f"{label} {datetime.now(UTC).date().isoformat()}",
         )
         try:
             model = await run_in_threadpool(
-                self.parser,
+                parser,
                 upload.content,
                 file_kind=attempt.kind.value,
                 document_id=attempt.document_id,
             )
-        except BankStatementParserError:
+        except StatementParserError:
             raise UploadProcessingError(
                 422,
                 "statement_parse_failed",

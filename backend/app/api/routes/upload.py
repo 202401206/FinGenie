@@ -1,4 +1,4 @@
-"""Upload router factory. Mount only with the real reviewed bank parser."""
+"""Authenticated uploads with the parser for the requested document type."""
 
 from typing import Annotated
 
@@ -18,7 +18,7 @@ from app.services.source_dependencies import (
     get_upload_attempt_service,
     get_upload_recovery_service,
 )
-from app.services.upload import BankParser, UploadProcessingError, UploadService
+from app.services.upload import StatementParser, UploadProcessingError, UploadService
 from app.services.upload_attempts import UploadAttemptService
 from app.services.upload_recovery import UploadRecoveryService
 from app.services.upload_validation import (
@@ -31,7 +31,10 @@ BODY_LIMIT_MESSAGE = "Upload request exceeds the supported size."
 
 
 def create_upload_router(
-    parser: BankParser, *, policy: UploadPolicy = DEFAULT_POLICY
+    bank_parser: StatementParser,
+    *,
+    balance_parser: StatementParser,
+    policy: UploadPolicy = DEFAULT_POLICY,
 ) -> APIRouter:
     # Auth dependencies run before manual multipart parsing. Limit the entire
     # multipart body too, because file spooling precedes the bounded helper read.
@@ -73,7 +76,8 @@ def create_upload_router(
                                 },
                                 "document_type": {
                                     "type": "string",
-                                    "enum": ["bank_statement"],
+                                    "enum": ["bank_statement", "balance_sheet"],
+                                    "description": "Balance sheets require business user type.",
                                 },
                                 "file": {"type": "string", "format": "binary"},
                             },
@@ -96,7 +100,14 @@ def create_upload_router(
         attempts: Annotated[UploadAttemptService, Depends(get_upload_attempt_service)],
     ) -> UploadResponse:
         service = UploadService(
-            parser, access, save, recovery, workspaces, policy=policy, attempts=attempts
+            bank_parser,
+            access,
+            save,
+            recovery,
+            workspaces,
+            balance_parser=balance_parser,
+            policy=policy,
+            attempts=attempts,
         )
         try:
             async with request.form(
