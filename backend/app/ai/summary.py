@@ -63,7 +63,7 @@ async def _generate_bank_summary(
             {"role": "user", "content": prompt},
         ]
         response = await llm.generate(messages=messages, temperature=0.1)
-        if response.finish_reason == "length":
+        if response.finish_reason != "stop" or bool(response.tool_calls):
             flow_word = "positive" if (net_val or 0) >= 0 else "negative"
             summary_text = (
                 f"For this statement period, total deposits were {currency} {credit_val} and total "
@@ -137,7 +137,7 @@ async def _generate_balance_sheet_summary(
             {"role": "user", "content": prompt},
         ]
         response = await llm.generate(messages=messages, temperature=0.1)
-        if response.finish_reason == "length":
+        if response.finish_reason != "stop" or bool(response.tool_calls):
             summary_text = (
                 f"The balance sheet is reconciled and balanced. The business reports a working capital of "
                 f"{currency} {wc_res.value} with a current ratio of {cr_res.value}."
