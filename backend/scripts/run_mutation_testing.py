@@ -1,0 +1,281 @@
+"""Run a documented, selected mutation campaign in disposable source copies.
+
+From backend: python -m scripts.run_mutation_testing
+Each mutant changes exactly one expression in one source file. Pytest must
+complete with actual test failures to classify a mutant as killed.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+BACKEND = ROOT / "backend"
+OUTPUT = ROOT / "docs/testing-evidence/mutation-results.json"
+TESTS = ["tests/ai/test_number_guard.py", "tests/analysis"]
+# ID, operator, source, original expression, replacement expression
+MUTATIONS = [
+    ("NG01", "ROR", "ai/number_guard.py", "value == known", "value != known"),
+    (
+        "NG02",
+        "ROR",
+        "ai/number_guard.py",
+        'result.status != "available"',
+        'result.status == "available"',
+    ),
+    ("NG03", "ROR", "ai/number_guard.py", "len(text) > 20000", "len(text) > 20001"),
+    (
+        "NG04",
+        "SDL",
+        "ai/number_guard.py",
+        "value = value.copy_negate()",
+        "pass  # mutation: delete accounting negation",
+    ),
+    (
+        "NG05",
+        "SDL",
+        "ai/number_guard.py",
+        "units.append(SYMBOLS.get(code, code))",
+        "pass  # mutation: delete currency constraint",
+    ),
+    (
+        "NG06",
+        "SDL",
+        "ai/number_guard.py",
+        'units.append("percent")',
+        "pass  # mutation: delete percentage constraint",
+    ),
+    ("NG07", "ROR", "ai/number_guard.py", "len(raw) > 128", "len(raw) > 129"),
+    (
+        "NG08",
+        "ROR",
+        "ai/number_guard.py",
+        "return not self.issues",
+        "return bool(self.issues)",
+    ),
+    (
+        "BK01",
+        "AOR",
+        "analysis/bank_kpis.py",
+        "total_credit += credit_amount",
+        "total_credit -= credit_amount",
+    ),
+    (
+        "BK02",
+        "AOR",
+        "analysis/bank_kpis.py",
+        "total_debit += debit_amount",
+        "total_debit -= debit_amount",
+    ),
+    (
+        "BK03",
+        "AOR",
+        "analysis/bank_kpis.py",
+        "net_val = credit_val - debit_val",
+        "net_val = credit_val + debit_val",
+    ),
+    (
+        "BK04",
+        "AOR",
+        "analysis/bank_kpis.py",
+        "expected_closing = opening_balance + total_credit - total_debit",
+        "expected_closing = opening_balance + total_credit + total_debit",
+    ),
+    (
+        "BS01",
+        "AOR",
+        "analysis/balance_sheet_kpis.py",
+        "(curr_assets_total - curr_liab_total) * scale_val",
+        "(curr_assets_total + curr_liab_total) * scale_val",
+    ),
+    (
+        "BS02",
+        "AOR",
+        "analysis/balance_sheet_kpis.py",
+        "ratio = curr_assets_total / curr_liab_total",
+        "ratio = curr_assets_total * curr_liab_total",
+    ),
+    (
+        "BS03",
+        "ROR",
+        "analysis/balance_sheet_kpis.py",
+        'curr_liab_total == Decimal("0")',
+        'curr_liab_total != Decimal("0")',
+    ),
+    (
+        "BS04",
+        "AOR",
+        "analysis/balance_sheet_kpis.py",
+        "diff = total_assets - (total_liab + total_equity)",
+        "diff = total_assets + (total_liab + total_equity)",
+    ),
+]
+
+
+def run_suite(backend, env, tests_to_run=None):
+    junit = backend / "mutation-junit.xml"
+    junit.unlink(missing_ok=True)
+    started = time.perf_counter()
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-m",
+                "pytest",
+                *(tests_to_run or TESTS),
+                "-q",
+                f"--junitxml={junit}",
+            ],
+            cwd=backend,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "timeout", "seconds": round(time.perf_counter() - started, 3)}
+    try:
+        tests = ET.parse(junit).getroot() if junit.exists() else None
+    except ET.ParseError:
+        tests = None
+    failures = (
+        []
+        if tests is None
+        else [
+            f"{case.attrib.get('classname')}.{case.attrib.get('name')}"
+            for case in tests.iter("testcase")
+            if case.find("failure") is not None
+        ]
+    )
+    errors = [] if tests is None else list(tests.iter("error"))
+    status = (
+        "survived"
+        if result.returncode == 0 and tests is not None and not errors
+        else "invalid"
+    )
+    if result.returncode == 1 and failures and not errors:
+        status = "killed"
+    return {
+        "status": status,
+        "exit_code": result.returncode,
+        "seconds": round(time.perf_counter() - started, 3),
+        "failed_tests": failures,
+        "pytest_output": result.stdout + result.stderr,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--include-regressions", action="store_true")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--baseline", type=Path, help="Optional initial campaign to compare against"
+    )
+    args = parser.parse_args()
+    initial = json.loads(args.baseline.read_text()) if args.baseline else None
+    tests = list(TESTS)
+    if args.include_regressions:
+        tests.append("tests/ai/test_number_guard_mutation_regression.py")
+    output = args.output or OUTPUT.with_name(
+        f"mutation-results-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    )
+    if output.exists():
+        parser.error(
+            "Output already exists. Choose a new path to preserve earlier evidence."
+        )
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("FINGENIE_")
+    }
+    env.update(PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    results = []
+    with tempfile.TemporaryDirectory(prefix="fingenie-mutations-") as temporary:
+        sandbox = Path(temporary)
+        shutil.copytree(
+            BACKEND / "app",
+            sandbox / "backend/app",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+        shutil.copytree(
+            BACKEND / "tests",
+            sandbox / "backend/tests",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+        shutil.copytree(ROOT / "contracts", sandbox / "contracts")
+        shutil.copy2(BACKEND / "pyproject.toml", sandbox / "backend/pyproject.toml")
+        backend = sandbox / "backend"
+        baseline = run_suite(backend, env, tests)
+        if baseline["status"] != "survived":
+            raise RuntimeError(f"Unmodified baseline failed: {baseline}")
+        for identifier, operator, source, original, replacement in MUTATIONS:
+            path = backend / "app" / source
+            contents = path.read_text()
+            if contents.count(original) != 1:
+                raise RuntimeError(
+                    f"{identifier}: expected exactly one matching expression"
+                )
+            try:
+                path.write_text(contents.replace(original, replacement, 1))
+                result = run_suite(backend, env, tests)
+            finally:
+                path.write_text(contents)
+            result.update(
+                id=identifier,
+                operator=operator,
+                source=f"backend/app/{source}",
+                original=original,
+                replacement=replacement,
+                source_sha256=hashlib.sha256(contents.encode()).hexdigest(),
+            )
+            results.append(result)
+            print(f"{identifier} {operator}: {result['status']}", flush=True)
+    counts = Counter(result["status"] for result in results)
+    executable = counts["killed"] + counts["survived"]
+    report = {
+        "run_at_utc": datetime.now(timezone.utc).isoformat(),
+        "revision": revision,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "campaign": "16 explicitly selected first-order mutants; no exhaustive mutation claim",
+        "tests": tests,
+        "baseline": baseline,
+        "counts": dict(counts),
+        "mutation_score_percent": round(100 * counts["killed"] / executable, 2)
+        if executable
+        else None,
+        "results": results,
+    }
+    if initial is not None:
+        previous = initial.get("initial_campaign", initial)
+        previous_hashes = {
+            row["id"]: row["source_sha256"] for row in previous["results"]
+        }
+        current_hashes = {row["id"]: row["source_sha256"] for row in results}
+        if previous_hashes != current_hashes:
+            raise ValueError("Baseline source hashes differ from this campaign.")
+        report["initial_campaign"] = previous
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("x") as stream:
+        stream.write(json.dumps(report, indent=2) + "\n")
+    print(f"Evidence written to {output}")
+    return int(bool(counts["invalid"] or counts["timeout"]))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
