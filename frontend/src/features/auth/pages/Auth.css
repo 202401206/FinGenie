@@ -1,0 +1,260 @@
+/* FinGenie Authentication Feature Styles */
+
+.fg-auth-page {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  background-color: #f4f7f5;
+  color: #18352f;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+.fg-auth-hero {
+  flex: 0 0 42%;
+  background: linear-gradient(150deg, #18352f 0%, #0b1b15 100%);
+  color: #ffffff;
+  padding: 56px 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.fg-auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fg-auth-brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(74, 222, 128, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.fg-auth-brand-name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.fg-auth-hero-content h2 {
+  font-size: 30px;
+  line-height: 1.25;
+  margin: 0 0 14px 0;
+  font-weight: 700;
+}
+
+.fg-auth-hero-accent {
+  color: #4ade80;
+}
+
+.fg-auth-hero-content p {
+  color: #b3c2b9;
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.fg-auth-feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.fg-auth-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #d1e8db;
+}
+
+.fg-auth-hero-footer {
+  font-size: 12px;
+  color: #6a8575;
+}
+
+.fg-auth-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 32px;
+}
+
+.fg-auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  padding: 36px;
+  border-radius: 12px;
+  border: 1px solid #e5ebe7;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.fg-auth-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  color: #18352f;
+}
+
+.fg-auth-subtitle {
+  color: #66776d;
+  font-size: 14px;
+  margin: 0 0 24px 0;
+  line-height: 1.5;
+}
+
+.fg-auth-alert {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.fg-auth-alert-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+.fg-auth-alert-success {
+  background: #e7f3eb;
+  color: #1d8a60;
+  border: 1px solid #a7d7bc;
+}
+
+.fg-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fg-auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fg-auth-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2d4038;
+}
+
+.fg-auth-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fg-auth-input {
+  width: 100%;
+  padding: 11px 14px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1.5px solid #d1dbd4;
+  font-size: 14px;
+  color: #18352f;
+  background: #ffffff;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.fg-auth-input:focus {
+  border-color: #1d8a60;
+  box-shadow: 0 0 0 3px rgba(29, 138, 96, 0.12);
+}
+
+.fg-auth-input:disabled {
+  background: #f4f7f5;
+  cursor: not-allowed;
+}
+
+.fg-auth-toggle-pwd {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: #8fa297;
+  padding: 4px;
+}
+
+.fg-auth-help-text {
+  font-size: 12px;
+  color: #66776d;
+  margin-top: 2px;
+}
+
+.fg-auth-submit-btn {
+  background: #18352f;
+  color: #ffffff;
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  margin-top: 4px;
+}
+
+.fg-auth-submit-btn:hover:not(:disabled) {
+  background: #1d8a60;
+}
+
+.fg-auth-submit-btn:disabled {
+  background: #a0bfb4;
+  cursor: not-allowed;
+}
+
+.fg-auth-links {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: #66776d;
+}
+
+.fg-auth-link {
+  color: #1d8a60;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.fg-auth-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 840px) {
+  .fg-auth-page {
+    flex-direction: column;
+  }
+  .fg-auth-hero {
+    flex: none;
+    padding: 36px 24px;
+  }
+  .fg-auth-main {
+    padding: 32px 16px;
+  }
+  .fg-auth-card {
+    padding: 24px;
+  }
+}
