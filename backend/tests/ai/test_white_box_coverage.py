@@ -845,3 +845,133 @@ async def test_guard_retry_truncated_correction_raises_validation_error_on_max_r
         )
 
     assert "truncated" in str(exc_info.value).lower()
+
+
+@pytest.mark.anyio
+async def test_guard_retry_tool_calls_in_correction_prompts_subsequent_retry_and_succeeds() -> (
+    None
+):
+    """Ensure correction returning pending tool_calls is not accepted as final text, prompting subsequent retry."""
+    from app.ai.guard_retry import verify_and_retry_text
+
+    tool_res = ToolResult(
+        name="bank_total_credit",
+        value=Decimal("5000"),
+        unit="INR",
+        calculation_id="bank.total_credit.v1",
+        source_refs=[],
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    # Attempt 1: contains tool_calls and finish_reason='tool_calls', but has valid number 5000 in text
+    # Attempt 2: clean answer with finish_reason='stop' and no tool calls
+    mock_llm.generate = AsyncMock(
+        side_effect=[
+            GroqResponse(
+                content="Total credits are INR 5000.",
+                tool_calls=[
+                    ToolCall(id="tc-1", name="bank_total_credit", arguments={})
+                ],
+                finish_reason="tool_calls",
+                model="openai/gpt-oss-120b",
+            ),
+            GroqResponse(
+                content="Total credits are INR 5000.",
+                tool_calls=[],
+                finish_reason="stop",
+                model="openai/gpt-oss-120b",
+            ),
+        ]
+    )
+
+    result = await verify_and_retry_text(
+        initial_text="Total deposits were INR 9999.",
+        tool_results=[tool_res],
+        messages=[{"role": "user", "content": "What are my deposits?"}],
+        llm=mock_llm,
+        max_retries=2,
+    )
+    assert result == "Total credits are INR 5000."
+    assert mock_llm.generate.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_guard_retry_persistent_tool_calls_raises_validation_error() -> None:
+    """Ensure persistent tool calls during retries exhaust budget and raise incomplete AIValidationError."""
+    from app.ai.guard_retry import AIValidationError, verify_and_retry_text
+
+    tool_res = ToolResult(
+        name="bank_total_credit",
+        value=Decimal("5000"),
+        unit="INR",
+        calculation_id="bank.total_credit.v1",
+        source_refs=[],
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Total credits are INR 5000.",
+            tool_calls=[ToolCall(id="tc-1", name="bank_total_credit", arguments={})],
+            finish_reason="tool_calls",
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    with pytest.raises(AIValidationError) as exc_info:
+        await verify_and_retry_text(
+            initial_text="Total deposits were INR 9999.",
+            tool_results=[tool_res],
+            messages=[{"role": "user", "content": "What are my deposits?"}],
+            llm=mock_llm,
+            max_retries=2,
+        )
+
+    assert "pending tool calls" in str(exc_info.value).lower()
+
+
+@pytest.mark.anyio
+async def test_guard_retry_non_stop_or_missing_finish_reason_rejected() -> None:
+    """Ensure missing or non-stop finish_reason in retry triggers subsequent attempt."""
+    from app.ai.guard_retry import verify_and_retry_text
+
+    tool_res = ToolResult(
+        name="bank_total_credit",
+        value=Decimal("5000"),
+        unit="INR",
+        calculation_id="bank.total_credit.v1",
+        source_refs=[],
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    # Attempt 1: finish_reason is None/empty
+    # Attempt 2: finish_reason is 'stop'
+    mock_llm.generate = AsyncMock(
+        side_effect=[
+            GroqResponse(
+                content="Total credits are INR 5000.",
+                tool_calls=[],
+                finish_reason="",
+                model="openai/gpt-oss-120b",
+            ),
+            GroqResponse(
+                content="Total credits are INR 5000.",
+                tool_calls=[],
+                finish_reason="stop",
+                model="openai/gpt-oss-120b",
+            ),
+        ]
+    )
+
+    result = await verify_and_retry_text(
+        initial_text="Total deposits were INR 9999.",
+        tool_results=[tool_res],
+        messages=[{"role": "user", "content": "What are my deposits?"}],
+        llm=mock_llm,
+        max_retries=2,
+    )
+    assert result == "Total credits are INR 5000."
+    assert mock_llm.generate.call_count == 2

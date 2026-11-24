@@ -12,16 +12,17 @@
 
 As part of the Software Engineering (IT314) White-Box Testing milestone, the AI + Analysis team conducted a comprehensive code coverage audit across all team-owned modules in `backend/app/ai/`, `backend/app/analysis/`, and `backend/app/api/routes/ai.py`.
 
-Using industry-standard structural testing methodologies (Statement Coverage, Branch/Decision Coverage, Basis Path Testing, and Negative Fault-Injection), our test suite was expanded from an 83% baseline to **99.5% Statement Coverage** and **94.9% Branch Coverage** across **416 automated test cases**, with **zero test failures** and sub-2-second execution time.
+Using industry-standard structural testing methodologies (Statement Coverage, Branch/Decision Coverage, Basis Path Testing, and Negative Fault-Injection), our test suite was expanded from an 83% baseline to **99.5% Statement Coverage** and **95.0% Branch Coverage** (94.98%), with **zero test failures** and sub-3-second execution time.
 
 | Metric | Baseline | Post-White-Box Testing | Status |
 | :--- | :---: | :---: | :---: |
-| **Total Automated Tests (AI + Analysis)** | 392 passed | **416 passed** | ✅ +24 targeted test cases |
-| **AI Module Statement Coverage (`app.ai`)** | 80.5% | **99.1%** | ✅ Industry Gold Standard |
+| **Targeted AI + Analysis Tests** | 328 passed | **350 passed** | ✅ Dedicated AI/Analysis test suite |
+| **Comprehensive Monorepo Suite** | 392 passed | **883 passed (20 skipped, 903 total)** | ✅ Full backend regression suite |
+| **AI Module Statement Coverage (`app.ai`)** | 80.5% | **99.2%** | ✅ Industry Gold Standard |
 | **Analysis Engine Coverage (`app.analysis`)** | 91.8% | **99.8%** | ✅ Complete Deterministic Coverage |
 | **AI REST API Route Coverage (`app.api.routes.ai`)** | 94.0% | **100.0%** | ✅ Complete Error Translation |
-| **Combined Statement Coverage** | 83.2% | **99.5%** (1,134 / 1,140 stmts) | 🏆 **Grade-A Compliance** |
-| **Combined Branch Coverage** | 78.4% | **94.9%** (469 / 494 branches) | 🏆 **Grade-A Compliance** |
+| **Combined Statement Coverage** | 83.2% | **99.5%** (1,141 / 1,147 stmts) | 🏆 **Grade-A Compliance** |
+| **Combined Branch Coverage** | 78.4% | **95.0%** (473 / 498 branches) | 🏆 **Grade-A Compliance** |
 
 ---
 
@@ -30,9 +31,9 @@ Using industry-standard structural testing methodologies (Statement Coverage, Br
 White-box testing (also termed structural, clear-box, or glass-box testing) evaluates the internal logical structures, control flow paths, data flows, and condition boundaries of software code:
 
 1. **Statement Coverage ($C_{stmt}$)**: Ensures every single executable line of code is traversed by at least one test case:
-   $$C_{stmt} = \frac{\text{Executed Statements}}{\text{Total Statements}} \times 100\% = \frac{1,134}{1,140} \times 100\% = 99.47\% \approx 99.5\%$$
+   $$C_{stmt} = \frac{\text{Executed Statements}}{\text{Total Statements}} \times 100\% = \frac{1,141}{1,147} \times 100\% = 99.48\% \approx 99.5\%$$
 2. **Branch / Decision Coverage ($C_{branch}$)**: Ensures every boolean decision outcome (`True` and `False`) at each conditional jump (`if`, `elif`, `else`, `while`, `for`) is evaluated:
-   $$C_{branch} = \frac{\text{Traversed Decision Outcomes}}{\text{Total Decision Outcomes}} \times 100\% = \frac{469}{494} \times 100\% = 94.94\% \approx 94.9\%$$
+   $$C_{branch} = \frac{\text{Traversed Decision Outcomes}}{\text{Total Decision Outcomes}} \times 100\% = \frac{473}{498} \times 100\% = 94.98\% \approx 95.0\%$$
 3. **Basis Path Testing**: Deconstructs cyclomatic complexity ($V(G) = E - N + 2P$) into linear independent execution paths.
 4. **Boundary-Value Analysis (BVA)**: Tests extreme condition thresholds (e.g., zero current liabilities causing division by zero, empty transaction lists, maximum length messages, negative amounts).
 5. **Negative Fault Injection**: Deliberately simulates upstream network interruptions (`httpx.ConnectError`), malformed JSON payloads, non-numeric strings, and out-of-order execution to verify resilience and graceful degradation.
@@ -48,7 +49,7 @@ The following table reflects the audited coverage executed via `pytest --cov=app
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | `backend/app/ai/__init__.py` | 0 | 0 | 0 | 0 | **100%** | **100%** | **100%** | Package initialization |
 | `backend/app/ai/chatbot.py` | 104 | 0 | 50 | 2 | **100%** | **96.0%** | **99%** | Multi-turn reasoning & truncation fallbacks |
-| `backend/app/ai/guard_retry.py` | 33 | 1 | 10 | 1 | **97.0%** | **90.0%** | **95%** | Line 77 (Dead Code, see Sec 5) |
+| `backend/app/ai/guard_retry.py` | 40 | 1 | 14 | 1 | **97.5%** | **92.9%** | **96%** | Line 88 (Dead Code, see Sec 5) |
 | `backend/app/ai/number_guard.py` | 85 | 0 | 36 | 0 | **100%** | **100%** | **100%** | Numeric regex & sign verification |
 | `backend/app/ai/providers/__init__.py` | 2 | 0 | 0 | 0 | **100%** | **100%** | **100%** | Provider exports |
 | `backend/app/ai/providers/groq_provider.py` | 79 | 0 | 16 | 1 | **100%** | **93.8%** | **99%** | Ephemeral client, network errors, bad JSON |
@@ -58,7 +59,7 @@ The following table reflects the audited coverage executed via `pytest --cov=app
 | `backend/app/analysis/balance_sheet_kpis.py` | 177 | 0 | 74 | 3 | **100%** | **95.9%** | **99%** | Working capital, current ratio, reconciliation |
 | `backend/app/analysis/bank_kpis.py` | 349 | 1 | 184 | 9 | **99.7%** | **95.1%** | **98%** | Inflow, outflow, NCF, balance reconciliation |
 | `backend/app/api/routes/ai.py` | 66 | 0 | 20 | 2 | **100%** | **90.0%** | **98%** | FastAPI routes, fixture mocks, error maps |
-| **TOTAL** | **1,140** | **6** | **494** | **25** | **99.5%** | **94.9%** | **98.0%** | **All 416 Unit Tests Passing** |
+| **TOTAL** | **1,147** | **6** | **498** | **25** | **99.5%** | **95.0%** | **98.0%** | **All Tests Passing** |
 
 *(Note: The 6 missed statements consist of 4 top-level defensive `try...except ImportError` fallback hooks, 1 proven unreachable post-loop return, and 1 unreachable duplicate string sanitization guard).*
 
@@ -102,7 +103,7 @@ To close all coverage gaps, two dedicated white-box test suites were authored:
 * **Chatbot Truncation at Max Turns**: Verified that when reasoning turns reach max limit and the final provider response was truncated, the system executes clean deterministic synthesis.
 * **Bank Summary Truncation**: Verified that a truncated bank summary generation safely triggers deterministic template fallback with exact verified figures.
 * **Balance Sheet Summary Truncation**: Verified that a truncated balance sheet summary safely triggers deterministic template fallback with working capital and liquidity ratios.
-* **Correction Truncation in Guard Retry (`guard_retry.py`)**: Verified that when an LLM corrective re-prompt response is cut off mid-sentence (`finish_reason == "length"`), it is rejected even if its numbers happen to match tool results, prompting a subsequent retry or raising `AIValidationError` upon retry exhaustion.
+* **Correction Truncation & Incomplete Responses in Guard Retry (`guard_retry.py`)**: Verified that when an LLM corrective re-prompt response is cut off mid-sentence (`finish_reason == "length"`), returns pending `tool_calls`, or has a missing/non-stop `finish_reason`, it is rejected even if its text happens to contain valid numbers, prompting a subsequent retry or raising `AIValidationError` upon budget exhaustion.
 
 ---
 
@@ -110,16 +111,17 @@ To close all coverage gaps, two dedicated white-box test suites were authored:
 
 A primary academic objective of white-box testing is finding unreachable (dead) code through control-flow graph (CFG) analysis. Our audit discovered one notable instance:
 
-### Unreachable Return in `backend/app/ai/guard_retry.py` (Line 77)
+### Unreachable Return in `backend/app/ai/guard_retry.py` (Line 88)
 ```python
 async def verify_and_retry_text(...) -> str:
     conversation = list(messages)
     current_text = initial_text
     last_finish_reason = "stop"
+    has_tool_calls = False
 
     for attempt in range(max_retries + 1):
         check = verify_tool_results_text(current_text, tool_results)
-        if check.valid and last_finish_reason != "length":
+        if check.valid and last_finish_reason == "stop" and not has_tool_calls:
             return current_text  # [Exit Point A]
 
         if attempt == max_retries:
@@ -127,48 +129,41 @@ async def verify_and_retry_text(...) -> str:
 
         # ... generate retry with LLM ...
         current_text = retry_response.content or ""
-        last_finish_reason = retry_response.finish_reason
+        last_finish_reason = retry_response.finish_reason or "unknown"
+        has_tool_calls = bool(retry_response.tool_calls)
 
-    return current_text  # <-- LINE 77: UNREACHABLE DEAD CODE
+    return current_text  # <-- LINE 88: UNREACHABLE DEAD CODE
 ```
 
 **Formal Control-Flow Proof:**
 1. The loop runs for $attempt \in \{0, 1, \dots, \text{max\_retries}\}$.
-2. If at any iteration $check.valid$ is `True`, execution immediately terminates via **Exit Point A** (`return current_text`).
-3. If $check.valid$ is `False` and $attempt == \text{max\_retries}$, execution immediately terminates via **Exit Point B** (`raise AIValidationError`).
+2. If at any iteration $check.valid$ is `True` and the response is complete (`last_finish_reason == "stop"` without tool calls), execution immediately terminates via **Exit Point A** (`return current_text`).
+3. If $attempt == \text{max\_retries}$, execution immediately terminates via **Exit Point B** (`raise AIValidationError`).
 4. Because the final iteration ($attempt == \text{max\_retries}$) unconditionally executes Exit Point A or Exit Point B, the `for` loop can **never terminate normally**.
-5. Therefore, Line 64 is mathematically unreachable. Coverage tools report this line as missed, verifying that static code analysis matches runtime reality.
+5. Therefore, Line 88 is mathematically unreachable. Coverage tools report this line as missed, verifying that static code analysis matches runtime reality.
 
 ---
 
 ## 6. How to Reproduce Coverage Results Locally
 
-Evaluators and teammates can reproduce this exact coverage report locally in less than 3 seconds:
+Evaluators and teammates can reproduce these exact results locally using the following commands:
 
-### Step 1: Activate Virtual Environment
+### Targeted AI + Analysis Module Test Suite (350 passing tests in ~2.3s)
+Runs exclusively against the modules owned by the AI + Analysis track (`app.ai`, `app.analysis`, `app.api.routes.ai`):
 ```powershell
-cd d:\Code\SE\FinGenie\backend
-.\.venv\Scripts\Activate.ps1
+pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-branch --cov-report=term-missing backend/tests/ai backend/tests/analysis backend/tests/api/test_ai_routes.py
 ```
 
-### Step 2: Install Development Dependencies (includes `pytest-cov`)
+### Full Backend Monorepo Suite (903 collected: 883 passed, 20 skipped in ~8.2s)
+Runs the entire backend test suite across parsers, services, database repositories, and AI:
 ```powershell
-pip install -r requirements-dev.txt
+pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-branch --cov-report=term-missing backend/tests/
 ```
+*(Note: 20 tests in `test_persistence_recovery.py` test remote Supabase integration and are automatically skipped in offline environments).*
 
-### Step 3: Run Full Test Suite with Terminal Missing-Line Coverage
+### Generate Interactive HTML Coverage Report
 ```powershell
-pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-report=term-missing tests/
-```
-
-### Step 4: Run Branch Coverage
-```powershell
-pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-branch --cov-report=term-missing tests/
-```
-
-### Step 5: Generate Interactive HTML Coverage Report
-```powershell
-pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-report=html:coverage_html tests/
+pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-report=html:coverage_html backend/tests/ai backend/tests/analysis backend/tests/api/test_ai_routes.py
 # Open coverage_html/index.html in your web browser
 ```
 
@@ -177,9 +172,9 @@ pytest --cov=app.ai --cov=app.analysis --cov=app.api.routes.ai --cov-report=html
 ## 7. Conclusion
 
 By systematically applying White-Box Testing principles, the **FinGenie AI + Analysis track** has achieved:
-* **99.5% Statement Coverage** across 1,125 production statements.
-* **98.0% Branch Coverage** across 482 conditional branch edges.
-* **100% Coverage** on all core AI modules (`chatbot.py`, `number_guard.py`, `summary.py`, `groq_provider.py`).
-* Comprehensive verification of edge cases, accounting guards, network fault tolerance, and decimal precision.
+* **99.5% Statement Coverage** across 1,147 production statements (1,141 / 1,147 statements).
+* **95.0% Branch Coverage** across 498 conditional branch edges (473 / 498 edges, 94.98%).
+* **100% Statement Coverage** on all core AI modules (`chatbot.py`, `number_guard.py`, `summary.py`, `groq_provider.py`).
+* Comprehensive verification of edge cases, accounting guards, network fault tolerance, truncation safety, and decimal precision.
 
 This level of test coverage guarantees that the AI integration and financial analysis engines are completely robust, mathematically deterministic, and production-ready for the remainder of the FinGenie project.
