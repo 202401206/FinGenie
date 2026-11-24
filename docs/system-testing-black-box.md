@@ -1,11 +1,11 @@
 # FinGenie System Testing Specification: Black-Box & Acceptance Test Suite
 
-> **Document Type:** System-Level Black-Box Testing & Acceptance Specification  
-> **Application:** FinGenie Financial Analytics Platform  
-> **Target Subsystem:** Bank Statement Analytics & KPI Calculation Engine  
-> **Reference Module:** [`backend/app/analysis/bank_kpis.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/analysis/bank_kpis.py)  
-> **Reference Contracts:** [`contracts/README.md`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/README.md), [`contracts/examples/bank-statement.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/bank-statement.json), [`contracts/examples/financial-analysis.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/financial-analysis.json)  
-> **Status:** Proposed Specification & Test Plan (Sprint 2 Milestone)  
+> **Document Type:** System-Level Black-Box Testing & Acceptance Specification
+> **Application:** FinGenie Financial Analytics Platform
+> **Target Subsystem:** Bank Statement Analytics & KPI Calculation Engine
+> **Reference Module:** [`backend/app/analysis/bank_kpis.py`](../backend/app/analysis/bank_kpis.py)
+> **Reference Contracts:** [`contracts/README.md`](../contracts/README.md), [`contracts/examples/bank-statement.json`](../contracts/examples/bank-statement.json), [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json)
+> **Status:** Proposed Specification & Test Plan (Sprint 2 Milestone)
 
 ---
 
@@ -18,8 +18,8 @@ In financial software, black-box testing provides the final barrier against comp
 
 ### 1.2 Scope
 - **In Scope:**
-  - Observable inputs: Standardized bank statement JSON dictionaries conforming to [`contracts/examples/bank-statement.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/bank-statement.json).
-  - Observable outputs: Complete financial analysis envelopes conforming to [`contracts/examples/financial-analysis.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/financial-analysis.json).
+  - Observable inputs: Standardized bank statement JSON dictionaries conforming to [`contracts/examples/bank-statement.json`](../contracts/examples/bank-statement.json).
+  - Observable outputs: Complete financial analysis envelopes conforming to [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json).
   - Functional behavior of all 6 core metrics:
     1. Total Credit (`bank.total_credit.v1`)
     2. Total Debit (`bank.total_debit.v1`)
@@ -32,8 +32,8 @@ In financial software, black-box testing provides the final barrier against comp
   - Robustness under numeric edge cases: non-negative credit/debit magnitudes, negative balances (overdrafts), multi-crore amounts, Indian and International number grouping formats, non-finite numbers (`NaN`, `Infinity`), and missing currencies.
 - **Out of Scope:**
   - Internal unit test coverage of private helper functions (`_to_decimal`, `_build_source_ref`).
-  - Database schema migrations and RLS policy testing (covered in `docs/database-schema.md`).
-  - Third-party LLM response quality (covered in `docs/ai-and-analysis-integration-guide.md`).
+  - Database schema migrations and RLS policy testing (covered in [`database-schema.md`](database-schema.md)).
+  - Third-party LLM response quality (covered in [`ai-and-analysis-integration-guide.md`](ai-and-analysis-integration-guide.md)).
 
 ---
 
@@ -134,7 +134,7 @@ Boundary value analysis focuses on testing the extremes and edges of input parti
 | **BVA-AMT-05** | Balance | `-0.01` | Smallest overdraft balance. | Accepted as valid negative balance for opening/closing balance. |
 | **BVA-GRP-01** | Integer String | `"999"` | Maximum 3-digit ungrouped integer. | Accepted without commas. |
 | **BVA-GRP-02** | Integer String | `"1,000"` | Minimum 4-digit International grouped integer. | Accepted; parsed to `1000`. |
-| **BVA-GRP-03** | Integer String | `"99,999"` | Maximum 5-digit number before Lakh transition. | Accepted as valid International format (`"99,999"` is 2-digit then 3-digit, valid Indian). |
+| **BVA-GRP-03** | Integer String | `"99,999"` | Maximum 5-digit number before Lakh transition. | Accepted as valid International format (`"99,999"` has 3 trailing digits, structurally valid). |
 | **BVA-GRP-04** | Integer String | `"1,00,000"` | Minimum 6-digit Indian Lakh grouping. | Accepted as valid Indian format; parsed to `100000`. |
 | **BVA-GRP-05** | Integer String | `"99,99,999"` | Maximum Lakh grouping before Crore transition. | Accepted as valid Indian format; parsed to `9999999`. |
 | **BVA-GRP-06** | Integer String | `"1,00,00,000"` | Minimum 8-digit Indian Crore grouping. | Accepted as valid Indian format; parsed to `10000000`. |
@@ -227,7 +227,7 @@ The following structured test cases specify the complete acceptance requirements
 | **TC-BB-BNK-031** | Negative Source Row Validation | Transaction has `source_row: -4`. | `status: "unavailable"`<br>`value: null`<br>`reason` specifies `source_row` must be positive integer $\ge 1$. | Rejects negative row index. |
 | **TC-BB-BNK-032** | Source Locations Missing on Statement | Statement has no `source_locations` key. Opening balance and closing balance are valid. | `status: "available"`<br>`opening_balance.source_refs: [ { source_rows: [], field_paths: ["opening_balance"] } ]` | Gracefully handles absent `source_locations`; returns empty `source_rows` without error. |
 | **TC-BB-BNK-033** | Malformed Source Locations Structure | `source_locations` is a string `"invalid"` or integer `123`. | `status: "unavailable"`<br>`reason` indicates `source_locations` must be a dictionary. | Rejects invalid container type for `source_locations`. |
-| **TC-BB-BNK-034** | Contract Fixture Exact Equivalence | Complete [`contracts/examples/bank-statement.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/bank-statement.json) input with workspace ID `"20000000-0000-4000-8000-000000000001"`. | Exact dictionary equivalence with [`contracts/examples/financial-analysis.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/financial-analysis.json). | Guarantees complete fidelity to the agreed team interface contract. |
+| **TC-BB-BNK-034** | Contract Fixture Exact Equivalence | Complete [`contracts/examples/bank-statement.json`](../contracts/examples/bank-statement.json) input with workspace ID `"20000000-0000-4000-8000-000000000001"`. | Exact dictionary equivalence with [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json). | Guarantees complete fidelity to the agreed team interface contract. |
 | **TC-BB-BNK-035** | JSON Response Serialization Precision | Analysis result serialized for FastAPI/HTTP wire delivery. | Whole numbers serialized as JSON integers (e.g., `5000`); fractional numbers as floats (e.g., `50.25`); values match JSON contract. | Guarantees valid JSON number types over HTTP without losing paise/cents. |
 
 ---
@@ -256,14 +256,14 @@ It is critical to distinguish between the **existing automated test suite** alre
 ```
 
 ### 6.1 Status of Existing Automated Tests
-- **Location:** [`backend/tests/analysis/test_bank_kpis.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/tests/analysis/test_bank_kpis.py)
+- **Location:** [`backend/tests/analysis/test_bank_kpis.py`](../backend/tests/analysis/test_bank_kpis.py)
 - **Execution Evidence:** 119 passed tests (Pytest 8.4.2 on Python 3.11.9).
 - **Scope:** Unit-level verification of `bank_kpis.py` functions, regex pattern matching, Decimal arithmetic, and exact matching against the fixture `contracts/examples/financial-analysis.json`.
 - **Nature:** White-box and module-level unit tests executed directly in the Python runtime.
 
 ### 6.2 Nature of Proposed Black-Box Acceptance Tests
 - **Status:** **Proposed / Specification Plan.** None of the proposed black-box test cases in Section 5 are claimed to have been executed as end-to-end black-box system tests.
-- **Scope:** Intended for execution by independent QA engineers or automated HTTP test harnesses (e.g., Postman, Newman, Playwright, or black-box curl scripts) calling external REST endpoints (`POST /api/upload`, `GET /api/workspaces/{id}`).
+- **Scope:** Intended for execution by independent QA engineers or automated HTTP test harnesses (e.g., Postman, Newman, Playwright, or black-box curl scripts) calling external REST endpoints (`POST /api/upload`, `GET /api/workspaces/{id}/analysis`).
 - **Key Differences:**
   1. **Black-box execution:** No imports of Python modules or helper functions. Test inputs are supplied as serialized JSON files or multipart CSV/XLSX uploads.
   2. **End-to-End Environment:** Tests the complete network, auth, serialization, and response pipeline.
@@ -296,46 +296,75 @@ curl -X POST "http://localhost:8000/api/upload" \
 *Observable Assertion:* Response status must be `201 Created` with a valid `workspace_id` and `document_id`.
 
 #### Step 3: Verify Observable Financial Analysis Envelope
-Retrieve the analysis payload for the created workspace:
+Target acceptance endpoint per [`contracts/api/README.md`](../contracts/api/README.md):
 ```bash
-curl -X GET "http://localhost:8000/api/workspaces/$WORKSPACE_ID" \
+curl -X GET "http://localhost:8000/api/workspaces/$WORKSPACE_ID/analysis" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-*Observable Output Schema Assertions:*
+> **API Registration Status & Black-Box Acceptance Target:**
+> In [`contracts/api/README.md`](../contracts/api/README.md) (Sprint 2 endpoint plan), `GET /api/workspaces/{id}/analysis` is the designated REST endpoint returning the top-level financial analysis envelope (`metrics`, `reliability`, `warnings`).
+> **Current Live Implementation Limitation:** Inspection of `backend/app/api/router.py` and `backend/app/api/routes/workspaces.py` shows that this route is not yet registered in the live FastAPI application (the current live router only exposes `/api/workspaces`, `/api/workspaces/{id}`, and `/api/workspaces/{id}/transactions`).
+> *Testing Guidance:* Black-box acceptance criteria evaluate the planned `/analysis` response contract below. Do not substitute `GET /api/workspaces/{id}`: that endpoint returns workspace and document metadata (`WorkspaceDetailsResponse`), not the calculation envelope. Once registered in `workspaces.py`, this endpoint must return the exact envelope structure validated below. In the interim, Section 7.2 demonstrates offline observable verification of this exact contract.
+
+*Observable Output Schema Assertions (`GET /api/workspaces/{id}/analysis`):*
 1. **Top-Level Envelope:**
    - `document_type` must equal `"bank_statement"`.
+   - `currency` must equal `"INR"` (or the statement's confirmed currency code).
    - `reliability` must be one of `"valid"`, `"unreliable"`, or `"insufficient_data"`.
-   - `warnings` must be an array of strings.
+   - `warnings` must be an array of strings (e.g., `[]` when valid).
+   - `metrics` must be an array of standard metric dictionaries.
 2. **Metrics Verification:**
-   - Iterate through `metrics` array and locate `key == "total_credit"`.
-   - Assert `metric.status == "available"`.
-   - Assert `metric.value` equals the expected numeric credit total (e.g., `5000.0`).
-   - Assert `metric.unit` equals `"INR"`.
-   - Assert `metric.calculation_id` equals `"bank.total_credit.v1"`.
-   - Assert `metric.source_refs[0].source_rows` contains only positive integers ($\ge 1$).
+   - Locate metric with `key == "total_credit"`:
+     - Assert `status == "available"`.
+     - Assert `value` equals expected total credit (e.g., `5000` or `5000.0`).
+     - Assert `unit == "INR"`.
+     - Assert `calculation_id == "bank.total_credit.v1"`.
+     - Assert `source_refs[0].source_rows` contains only positive integers ($\ge 1$).
+   - Locate metric with `key == "total_debit"`:
+     - Assert `status == "available"`.
+     - Assert `value` equals expected total debit (e.g., `2500` or `2500.0`).
+     - Assert `unit == "INR"`.
+     - Assert `calculation_id == "bank.total_debit.v1"`.
+   - Locate metric with `key == "net_cash_flow"`:
+     - Assert `status == "available"`.
+     - Assert `value` equals $\text{total\_credit} - \text{total\_debit}$ (e.g., `2500` or `2500.0`).
+     - Assert `unit == "INR"`.
+     - Assert `calculation_id == "bank.net_cash_flow.v1"`.
 
 ### 7.2 Verification via Standalone JSON Contract Runner
-For offline or CI verification without running a live server, an observable contract test script passes a JSON fixture directly into the public CLI/runner and checks standard exit codes and JSON output:
+For offline or CI verification without running a live server, an observable contract test script passes a JSON fixture directly into the public calculation engine and checks standard exit codes and JSON output.
+
+**Execution Directory & Path Rules:**
+- The command **must be run explicitly from the `backend/` directory** (`cd backend`). This ensures Python adds `backend/` to `sys.path`, resolving `from app.analysis.bank_kpis import analyze_bank_statement`.
+- Contract fixture file paths **must be relative to the `backend/` directory**, e.g., `../contracts/examples/bank-statement.json` and `../contracts/examples/financial-analysis.json`.
 
 ```bash
-# Validate that the analysis of synthetic_bank_statement exactly matches synthetic_financial_analysis
+# Step 1: Change to backend directory
+cd backend
+
+# Step 2: Execute observable contract validation command
 python -c "
 import json
 from app.analysis.bank_kpis import analyze_bank_statement
 
-with open('contracts/examples/bank-statement.json') as f:
+with open('../contracts/examples/bank-statement.json') as f:
     input_data = json.load(f)
-with open('contracts/examples/financial-analysis.json') as f:
+with open('../contracts/examples/financial-analysis.json') as f:
     expected_output = json.load(f)
 
-actual_output = analyze_bank_statement(input_data, workspace_id='20000000-0000-4000-8000-000000000001')
+actual_output = analyze_bank_statement(
+    input_data, workspace_id='20000000-0000-4000-8000-000000000001'
+)
 assert actual_output == expected_output, 'Contract mismatch detected!'
 print('Observable Acceptance Verification: 100% Contract Match!')
 "
 ```
 
-*Observable Assertion:* The exit code must be `0`, and the printed message must confirm an exact contract match.
+*Observable Assertion:* The exit code must be `0`, and the printed output must confirm:
+```text
+Observable Acceptance Verification: 100% Contract Match!
+```
 
 ---
 
