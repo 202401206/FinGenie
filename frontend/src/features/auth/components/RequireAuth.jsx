@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useAuth } from "../hooks/useAuth.js";
 import { sanitizeReturnPath } from "../utils/urlSecurity.js";
 
@@ -17,6 +17,13 @@ export function RequireAuth({
   onRedirectToLogin = null,
 }) {
   const { status, error, retrySessionVerification } = useAuth();
+
+  // Move navigation side effects out of render into useEffect to prevent React render warnings and loops
+  useEffect(() => {
+    if (status === "unauthenticated" && onRedirectToLogin) {
+      onRedirectToLogin();
+    }
+  }, [status, onRedirectToLogin]);
 
   if (status === "initializing") {
     return (
@@ -96,7 +103,6 @@ export function RequireAuth({
 
   if (status === "unauthenticated") {
     if (onRedirectToLogin) {
-      onRedirectToLogin();
       return fallback;
     }
 

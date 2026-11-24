@@ -1,9 +1,14 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth.js";
 import "./Auth.css";
 
 export function SignupPage({ onSignUpSuccess, onNavigateLogin }) {
-  const { signUp, status, error: authError } = useAuth();
+  const {
+    signUp,
+    resendConfirmationEmail,
+    status,
+    error: authError,
+  } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -12,12 +17,48 @@ export function SignupPage({ onSignUpSuccess, onNavigateLogin }) {
   const [loading, setLoading] = useState(false);
   const [isConfirmationNotice, setIsConfirmationNotice] = useState(false);
 
+  // Resend confirmation state
+  const [resending, setResending] = useState(false);
+  const [resendNotice, setResendNotice] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
   const handleNavigateSignIn = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (onNavigateLogin) {
       onNavigateLogin();
     } else if (typeof window !== "undefined") {
       window.location.assign("/login");
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (resending || resendCooldown > 0 || !email) return;
+
+    setResending(true);
+    setResendNotice("");
+    setError("");
+
+    try {
+      await resendConfirmationEmail({ email: email.trim() });
+      setResendNotice(
+        "A new confirmation email has been dispatched. Please check your inbox.",
+      );
+      setResendCooldown(30); // 30-second cooldown to prevent spam
+    } catch (err) {
+      setError(
+        err.message ||
+          "Unable to resend confirmation email. Please try again shortly.",
+      );
+    } finally {
+      setResending(false);
     }
   };
 
@@ -93,14 +134,64 @@ export function SignupPage({ onSignUpSuccess, onNavigateLogin }) {
             Click the link in your email to activate your account and start
             using FinGenie.
           </p>
-          <button
-            type="button"
-            onClick={handleNavigateSignIn}
-            className="fg-auth-submit-btn"
-            style={{ width: "100%" }}
+
+          {resendNotice && (
+            <div
+              className="fg-auth-alert fg-auth-alert-success"
+              role="status"
+              style={{ textAlign: "left", marginBottom: "16px" }}
+            >
+              <span aria-hidden="true">✓</span>
+              <span>{resendNotice}</span>
+            </div>
+          )}
+
+          {error && (
+            <div
+              className="fg-auth-alert fg-auth-alert-error"
+              role="alert"
+              style={{ textAlign: "left", marginBottom: "16px" }}
+            >
+              <span aria-hidden="true">⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "10px" }}
           >
-            Back to Sign In
-          </button>
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              disabled={resending || resendCooldown > 0}
+              style={{
+                background: "transparent",
+                border: "1.5px solid #18352F",
+                color: "#18352F",
+                padding: "10px 16px",
+                borderRadius: "8px",
+                fontWeight: 600,
+                fontSize: "14px",
+                cursor:
+                  resending || resendCooldown > 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              {resending
+                ? "Resending email..."
+                : resendCooldown > 0
+                  ? `Resend available in ${resendCooldown}s`
+                  : "Resend confirmation email"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleNavigateSignIn}
+              className="fg-auth-submit-btn"
+              style={{ width: "100%" }}
+            >
+              Back to Sign In
+            </button>
+          </div>
         </div>
       </div>
     );

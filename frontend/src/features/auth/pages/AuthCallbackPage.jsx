@@ -17,7 +17,7 @@ export function AuthCallbackPage() {
       const params = new URLSearchParams(url.search);
       const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
 
-      // Check for errors returned in query or hash by the provider
+      // Check for errors returned in query or hash by Supabase
       const errorMsg =
         params.get("error_description") || hashParams.get("error_description");
       if (errorMsg) {
@@ -29,11 +29,7 @@ export function AuthCallbackPage() {
       }
 
       const type = params.get("type") || hashParams.get("type");
-      const isRecovery = type === "recovery";
-
-      // Clean up sensitive tokens from address bar without reloading
-      const cleanUrl = `${window.location.origin}${window.location.pathname}`;
-      window.history.replaceState({}, document.title, cleanUrl);
+      const isRecoveryParam = type === "recovery";
 
       if (!supabase) {
         if (active) {
@@ -43,27 +39,62 @@ export function AuthCallbackPage() {
         return;
       }
 
+      // Check for exchangeable code (PKCE flow)
+      const code = params.get("code");
+      if (code) {
+        try {
+          const { data, error: exchangeError } =
+            await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+
+          // Clean sensitive code from address bar after successful exchange
+          const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+          window.history.replaceState({}, document.title, cleanUrl);
+
+          if (active) {
+            if (isRecoveryParam) {
+              window.location.assign("/reset-password");
+            } else if (data?.session) {
+              const returnTo = sanitizeReturnPath(params.get("returnTo"));
+              window.location.assign(returnTo);
+            } else {
+              window.location.assign("/documents");
+            }
+          }
+          return;
+        } catch (err) {
+          if (active) {
+            setError(
+              err.message ||
+                "Failed to exchange authorization code for session.",
+            );
+            setProcessing(false);
+          }
+          return;
+        }
+      }
+
+      // Check for hash fragment token or established session
       try {
-        // Retrieve the established session after Supabase client consumed URL parameters
         const {
           data: { session },
           error: sessionError,
         } = await supabase.auth.getSession();
-
         if (sessionError) throw sessionError;
 
+        // Clean up hash/query tokens
+        const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+
         if (active) {
-          if (isRecovery) {
-            // Forward user to password reset screen
+          if (isRecoveryParam) {
             window.location.assign("/reset-password");
           } else if (session) {
-            // Successful confirmation / login
             const returnTo = sanitizeReturnPath(params.get("returnTo"));
             window.location.assign(returnTo);
           } else {
-            // No session detected
             setError(
-              "Unable to verify callback authorization link. It may have expired or been used already.",
+              "Unable to verify authentication link. It may have expired or been used already.",
             );
             setProcessing(false);
           }

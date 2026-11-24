@@ -12,6 +12,7 @@ import {
 import {
   signInWithPassword,
   signUpWithPassword,
+  resendConfirmationEmail,
   signOutClient,
   sendPasswordResetEmail,
   updateUserPassword,
@@ -26,6 +27,7 @@ export {
   getAuthSession,
   signInWithPassword as signIn,
   signUpWithPassword as signUpUser,
+  resendConfirmationEmail,
   signOutClient as signOutUser,
   sendPasswordResetEmail,
   updateUserPassword,

@@ -21,6 +21,7 @@ export { default as AuthCallbackPage } from "./pages/AuthCallbackPage.jsx";
 export {
   signInWithPassword,
   signUpWithPassword,
+  resendConfirmationEmail,
   signOutClient,
   sendPasswordResetEmail,
   updateUserPassword,
