@@ -973,7 +973,13 @@ async def test_summary_initial_draft_incomplete_finish_reason_falls_back_to_temp
     bank_data = {
         "currency": "INR",
         "transactions": [
-            {"date": "2026-10-01", "credit": 5000, "debit": 0, "balance": 5000, "source_row": 1}
+            {
+                "date": "2026-10-01",
+                "credit": 5000,
+                "debit": 0,
+                "balance": 5000,
+                "source_row": 1,
+            }
         ],
     }
     mock_llm = MagicMock()
@@ -994,12 +1000,20 @@ async def test_summary_initial_draft_incomplete_finish_reason_falls_back_to_temp
 
 
 @pytest.mark.anyio
-async def test_summary_initial_draft_stop_with_pending_tool_calls_falls_back_to_template() -> None:
+async def test_summary_initial_draft_stop_with_pending_tool_calls_falls_back_to_template() -> (
+    None
+):
     """Ensure summary rejects initial draft terminated with 'stop' when pending tool_calls exist."""
     bank_data = {
         "currency": "INR",
         "transactions": [
-            {"date": "2026-10-01", "credit": 5000, "debit": 0, "balance": 5000, "source_row": 1}
+            {
+                "date": "2026-10-01",
+                "credit": 5000,
+                "debit": 0,
+                "balance": 5000,
+                "source_row": 1,
+            }
         ],
     }
     mock_llm = MagicMock()
@@ -1007,7 +1021,9 @@ async def test_summary_initial_draft_stop_with_pending_tool_calls_falls_back_to_
     mock_llm.generate = AsyncMock(
         return_value=GroqResponse(
             content="Total credits were INR 5000 and",
-            tool_calls=[ToolCall(id="call_extra", name="bank_total_credit", arguments={})],
+            tool_calls=[
+                ToolCall(id="call_extra", name="bank_total_credit", arguments={})
+            ],
             finish_reason="stop",
             model="openai/gpt-oss-120b",
         )
@@ -1025,7 +1041,9 @@ async def test_summary_balance_sheet_initial_draft_incomplete_falls_back_to_temp
 ) -> None:
     """Ensure balance sheet summary rejects incomplete initial draft and falls back to template."""
     repo_root = Path(__file__).resolve().parents[3]
-    with open(repo_root / "contracts" / "examples" / "balance-sheet.json", encoding="utf-8") as f:
+    with open(
+        repo_root / "contracts" / "examples" / "balance-sheet.json", encoding="utf-8"
+    ) as f:
         bs_data = json.load(f)
 
     mock_llm = MagicMock()
@@ -1054,7 +1072,13 @@ async def test_chatbot_initial_draft_incomplete_finish_reason_falls_back_to_offl
     bank_data = {
         "currency": "INR",
         "transactions": [
-            {"date": "2026-10-01", "credit": 5000, "debit": 0, "balance": 5000, "source_row": 1}
+            {
+                "date": "2026-10-01",
+                "credit": 5000,
+                "debit": 0,
+                "balance": 5000,
+                "source_row": 1,
+            }
         ],
     }
     mock_llm = MagicMock()
@@ -1072,4 +1096,6 @@ async def test_chatbot_initial_draft_incomplete_finish_reason_falls_back_to_offl
         "What is my total credit?", bank_data, provider=mock_llm
     )
     assert resp.text != "Total credits were INR 5000 and"
-    assert "Your total credits (deposits) for this period amount to INR 5000" in resp.text
+    assert (
+        "Your total credits (deposits) for this period amount to INR 5000" in resp.text
+    )
