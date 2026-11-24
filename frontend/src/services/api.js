@@ -88,7 +88,7 @@ export function parseRetryAfter(headerValue) {
 
 /**
  * Signal handler for authentication failures (e.g. 401 session expiry)
- * Allows AuthProvider to subscribe without circular imports.
+ * Passes both the error and the token that failed to the AuthProvider.
  */
 let unauthorizedHandler = null;
 
@@ -157,16 +157,31 @@ export function normalizeError(status, data, retryAfter = null) {
 
 /**
  * Core authenticated fetch wrapper.
- * Paths are relative to VITE_API_BASE_URL (e.g. /workspaces, /me).
+ * Endpoints must be relative paths beneath VITE_API_BASE_URL (e.g. /workspaces, /me).
+ * Rejects external URLs, protocol-relative paths, backslashes, or credential escapes.
  * Attaches Authorization: Bearer token for protected requests.
  * Supports explicit auth: false for public endpoints.
  */
 export async function apiRequest(endpoint, options = {}, explicitToken = null) {
+  // Reject external, absolute, protocol-relative, or backslash-tainted endpoints
+  if (
+    typeof endpoint !== "string" ||
+    !endpoint.trim() ||
+    endpoint.startsWith("http://") ||
+    endpoint.startsWith("https://") ||
+    endpoint.startsWith("//") ||
+    endpoint.includes("\\")
+  ) {
+    throw new ApiError(
+      400,
+      "invalid_endpoint",
+      "API endpoint must be a relative path beneath the API base URL.",
+    );
+  }
+
   const baseUrl = getBaseUrl();
-  const targetUrl =
-    endpoint.startsWith("http://") || endpoint.startsWith("https://")
-      ? endpoint
-      : `${baseUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+  const cleanPath = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const targetUrl = `${baseUrl}${cleanPath}`;
 
   // Extract auth flag; default to true (protected) unless explicitly false
   const requiresAuth = options.auth !== false;
@@ -175,21 +190,32 @@ export async function apiRequest(endpoint, options = {}, explicitToken = null) {
   const fetchOptions = { ...options };
   delete fetchOptions.auth;
 
-  // Build headers (preserving Headers instance or plain object)
-  const headers = {};
+  // Normalize headers with case-insensitivity while preserving caller headers
+  const normalizedHeaders = {};
   if (options.headers) {
-    if (typeof options.headers.forEach === "function") {
+    if (typeof Headers !== "undefined" && options.headers instanceof Headers) {
       options.headers.forEach((value, key) => {
-        headers[key] = value;
+        normalizedHeaders[key] = value;
+      });
+    } else if (Array.isArray(options.headers)) {
+      options.headers.forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          normalizedHeaders[key] = value;
+        }
       });
     } else {
-      Object.assign(headers, options.headers);
+      Object.entries(options.headers).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          normalizedHeaders[key] = value;
+        }
+      });
     }
   }
 
   // Attach bearer token if request requires authentication
+  let token = null;
   if (requiresAuth) {
-    const token = explicitToken || (await getAccessToken());
+    token = explicitToken || (await getAccessToken());
     if (!token) {
       throw new ApiError(
         401,
@@ -198,15 +224,25 @@ export async function apiRequest(endpoint, options = {}, explicitToken = null) {
         null,
       );
     }
-    headers["Authorization"] = `Bearer ${token}`;
+    // Remove any case variation of authorization before attaching canonical header
+    Object.keys(normalizedHeaders).forEach((k) => {
+      if (k.toLowerCase() === "authorization") {
+        delete normalizedHeaders[k];
+      }
+    });
+    normalizedHeaders["Authorization"] = `Bearer ${token}`;
   }
 
-  // Never overwrite or set multipart Content-Type when sending FormData
+  // Never force or retain caller content-type when sending FormData (let browser set multipart boundary)
   if (fetchOptions.body instanceof FormData) {
-    delete headers["Content-Type"];
+    Object.keys(normalizedHeaders).forEach((k) => {
+      if (k.toLowerCase() === "content-type") {
+        delete normalizedHeaders[k];
+      }
+    });
   }
 
-  fetchOptions.headers = headers;
+  fetchOptions.headers = normalizedHeaders;
 
   let response;
   try {
@@ -230,8 +266,9 @@ export async function apiRequest(endpoint, options = {}, explicitToken = null) {
     const error = normalizeError(response.status, errorData, retryAfter);
 
     // Notify auth provider on 401 on protected requests (except /me to prevent loops)
-    if (response.status === 401 && endpoint !== "/me" && unauthorizedHandler) {
-      unauthorizedHandler(error);
+    // Passes the specific token that failed so the provider only expires matching sessions
+    if (response.status === 401 && cleanPath !== "/me" && unauthorizedHandler) {
+      unauthorizedHandler(error, token);
     }
 
     throw error;
