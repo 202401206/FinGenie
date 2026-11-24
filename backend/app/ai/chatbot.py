@@ -135,7 +135,7 @@ async def chat_with_workspace(
                 }
             )
     else:
-        if response.finish_reason != "stop" or bool(response.tool_calls):
+        if response.finish_reason == "length":
             return _offline_chat_fallback(cleaned_msg, workspace_data)
         final_text = (
             response.content

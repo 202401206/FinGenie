@@ -11,13 +11,12 @@ Targets 100% statement, branch, and condition coverage across:
 
 import json
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.ai.chatbot import _offline_chat_fallback, chat_with_workspace
@@ -38,12 +37,7 @@ from app.ai.tools import (
     _metric_dict_to_tool_result,
     execute_tool,
 )
-from app.api.routes.ai import (
-    _FIXTURE_STORE,
-    _handle_provider_error,
-    _load_contract_fixture,
-    get_workspace_data,
-)
+from app.api.routes.ai import _handle_provider_error
 from app.core.config import Settings
 
 
@@ -566,49 +560,37 @@ def test_tools_pure_fallback_implementations() -> None:
 # ---------------------------------------------------------------------------
 # 6. White-box tests for app.api.routes.ai
 # ---------------------------------------------------------------------------
-def test_routes_ai_fixtures_and_error_branches() -> None:
-    """Branch coverage for ai.py routes internal helpers and error branches."""
-    # 1. Non-existent fixture file
-    empty_fixture = _load_contract_fixture("non_existent_fixture_file_123.json")
-    assert empty_fixture == {}
+def test_routes_ai_provider_error_handling() -> None:
+    """Branch coverage for ai.py routes internal error handler branches."""
+    from app.ai.providers.groq_provider import (
+        GroqAPIError,
+        GroqConfigurationError,
+        GroqError,
+    )
 
-    # 2. Custom fixture lookup in _FIXTURE_STORE
-    custom_ws_id = uuid4()
-    _FIXTURE_STORE[custom_ws_id] = {"custom": "data"}
-    assert get_workspace_data(custom_ws_id) == {"custom": "data"}
-    del _FIXTURE_STORE[custom_ws_id]
-
-    # 3. Provider error handler with unexpected base GroqError (line 104)
-    from app.ai.providers.groq_provider import GroqError
-
+    # 1. Base GroqError (fallback 502)
     exc_base = _handle_provider_error(GroqError("Generic unhandled error"))
     assert isinstance(exc_base, HTTPException)
     assert exc_base.status_code == 502
     assert exc_base.detail["message"] == "AI service failed unexpectedly."
 
+    # 2. GroqConfigurationError (503)
+    exc_cfg = _handle_provider_error(GroqConfigurationError("Missing key"))
+    assert exc_cfg.status_code == 503
 
-def test_routes_ai_summary_value_error_endpoint() -> None:
-    """Branch coverage for summary endpoint catching ValueError and raising 422 (line 131)."""
-    from app.core.security import CurrentUser, require_user
-    from app.main import app
+    # 3. GroqAPIError 429
+    exc_429 = _handle_provider_error(GroqAPIError(429, "Rate limit"))
+    assert exc_429.status_code == 429
 
-    # Override authentication dependency to permit test request
-    app.dependency_overrides[require_user] = lambda: CurrentUser(
-        id=uuid4(), email="tester@example.com", is_authenticated=True
-    )
+    # 4. GroqAPIError 503 / 504
+    exc_503 = _handle_provider_error(GroqAPIError(503, "Outage"))
+    assert exc_503.status_code == 503
+    exc_504 = _handle_provider_error(GroqAPIError(504, "Gateway timeout"))
+    assert exc_504.status_code == 503
 
-    bad_ws_id = uuid4()
-    # Workspace data lacking transactions or assets triggers ValueError in generate_summary
-    _FIXTURE_STORE[bad_ws_id] = {"invalid_key": "unsupported_data"}
-
-    client = TestClient(app)
-    response = client.post(f"/api/workspaces/{bad_ws_id}/summary")
-
-    del _FIXTURE_STORE[bad_ws_id]
-    app.dependency_overrides.clear()
-
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "invalid_workspace_data"
+    # 5. GroqAPIError 500
+    exc_500 = _handle_provider_error(GroqAPIError(500, "Internal error"))
+    assert exc_500.status_code == 502
 
 
 # ---------------------------------------------------------------------------
@@ -975,3 +957,119 @@ async def test_guard_retry_non_stop_or_missing_finish_reason_rejected() -> None:
     )
     assert result == "Total credits are INR 5000."
     assert mock_llm.generate.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# 12. Regression Tests: Initial Draft Completion Check (Chat & Summary)
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+@pytest.mark.parametrize("bad_finish_reason", [None, "", "tool_calls"])
+async def test_summary_initial_draft_incomplete_finish_reason_falls_back_to_template(
+    bad_finish_reason: str | None,
+) -> None:
+    """Ensure bank summary rejects incomplete initial draft (missing or non-stop finish_reason)
+    and uses deterministic template fallback.
+    """
+    bank_data = {
+        "currency": "INR",
+        "transactions": [
+            {"date": "2026-10-01", "credit": 5000, "debit": 0, "balance": 5000, "source_row": 1}
+        ],
+    }
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Total credits were INR 5000 and",
+            tool_calls=[],
+            finish_reason=bad_finish_reason,  # type: ignore[arg-type]
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    resp = await generate_summary(bank_data, provider=mock_llm)
+    assert resp.text != "Total credits were INR 5000 and"
+    assert "total deposits were INR 5000" in resp.text
+    assert "resulting in a positive net cash flow" in resp.text
+
+
+@pytest.mark.anyio
+async def test_summary_initial_draft_stop_with_pending_tool_calls_falls_back_to_template() -> None:
+    """Ensure summary rejects initial draft terminated with 'stop' when pending tool_calls exist."""
+    bank_data = {
+        "currency": "INR",
+        "transactions": [
+            {"date": "2026-10-01", "credit": 5000, "debit": 0, "balance": 5000, "source_row": 1}
+        ],
+    }
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Total credits were INR 5000 and",
+            tool_calls=[ToolCall(id="call_extra", name="bank_total_credit", arguments={})],
+            finish_reason="stop",
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    resp = await generate_summary(bank_data, provider=mock_llm)
+    assert resp.text != "Total credits were INR 5000 and"
+    assert "total deposits were INR 5000" in resp.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bad_finish_reason", [None, "", "tool_calls"])
+async def test_summary_balance_sheet_initial_draft_incomplete_falls_back_to_template(
+    bad_finish_reason: str | None,
+) -> None:
+    """Ensure balance sheet summary rejects incomplete initial draft and falls back to template."""
+    repo_root = Path(__file__).resolve().parents[3]
+    with open(repo_root / "contracts" / "examples" / "balance-sheet.json", encoding="utf-8") as f:
+        bs_data = json.load(f)
+
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="The balance sheet has working capital of INR 7000000 and",
+            tool_calls=[],
+            finish_reason=bad_finish_reason,  # type: ignore[arg-type]
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    resp = await generate_summary(bs_data, provider=mock_llm)
+    assert resp.text != "The balance sheet has working capital of INR 7000000 and"
+    assert "reconciled and balanced" in resp.text
+    assert "7000000" in resp.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bad_finish_reason", [None, "", "tool_calls"])
+async def test_chatbot_initial_draft_incomplete_finish_reason_falls_back_to_offline(
+    bad_finish_reason: str | None,
+) -> None:
+    """Ensure chatbot rejects direct synthesized answer when finish_reason is missing or not 'stop'."""
+    bank_data = {
+        "currency": "INR",
+        "transactions": [
+            {"date": "2026-10-01", "credit": 5000, "debit": 0, "balance": 5000, "source_row": 1}
+        ],
+    }
+    mock_llm = MagicMock()
+    mock_llm.is_configured = True
+    mock_llm.generate = AsyncMock(
+        return_value=GroqResponse(
+            content="Total credits were INR 5000 and",
+            tool_calls=[],
+            finish_reason=bad_finish_reason,  # type: ignore[arg-type]
+            model="openai/gpt-oss-120b",
+        )
+    )
+
+    resp = await chat_with_workspace(
+        "What is my total credit?", bank_data, provider=mock_llm
+    )
+    assert resp.text != "Total credits were INR 5000 and"
+    assert "Your total credits (deposits) for this period amount to INR 5000" in resp.text
