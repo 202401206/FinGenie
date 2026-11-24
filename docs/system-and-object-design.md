@@ -1,11 +1,11 @@
 # FinGenie System and Object Design Specification
 
-> **Document Type:** System and Object-Level Architecture Specification  
-> **Application:** FinGenie Financial Analytics Platform  
-> **Target Subsystems:** Bank Statement Analytics, Ingestion Pipeline, Schema Validation, and Verification Subsystems  
-> **Repository Context:** `backend/app/`  
-> **Primary Authors:** FinGenie Engineering Team (Bank Analytics Track & Architecture)  
-> **Status:** Active & Implemented (Sprint 1 & Sprint 2 Baseline)  
+> **Document Type:** System and Object-Level Architecture Specification
+> **Application:** FinGenie Financial Analytics Platform
+> **Target Subsystems:** Bank Statement Analytics, Ingestion Pipeline, Schema Validation, and Verification Subsystems
+> **Repository Context:** `backend/app/`
+> **Primary Authors:** FinGenie Engineering Team (Bank Analytics Track & Architecture)
+> **Status:** Active & Implemented (Sprint 1 & Sprint 2 Baseline)
 
 ---
 
@@ -21,8 +21,8 @@ FinGenie bridges raw, unstructured financial documents (bank statements in CSV/X
   - Complete architecture of the FastAPI backend and its interaction with the React/Vite frontend and Supabase (Auth, PostgreSQL with Row-Level Security, private Storage bucket).
   - Component responsibilities, interface boundaries, and data contracts.
   - End-to-end data pipeline from raw file upload to parsed document, deterministic metric calculation, and AI tool routing.
-  - Functional and object-level design of [`backend/app/analysis/bank_kpis.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/analysis/bank_kpis.py), including exact calculation algorithms, source reference mechanics, grouping regexes, and error-handling policies.
-  - Pydantic models in [`backend/app/schemas/bank_statement.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/schemas/bank_statement.py) and data structures in [`backend/app/ai/tools.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/ai/tools.py).
+  - Functional and object-level design of [`backend/app/analysis/bank_kpis.py`](../backend/app/analysis/bank_kpis.py), including exact calculation algorithms, source reference mechanics, grouping regexes, and error-handling policies.
+  - Pydantic models in [`backend/app/schemas/bank_statement.py`](../backend/app/schemas/bank_statement.py) and data structures in [`backend/app/ai/tools.py`](../backend/app/ai/tools.py).
   - Explicit design principles and patterns genuinely implemented in the codebase.
 - **Out of Scope (V1):**
   - Live bank scraping or Open Banking API connections (statements are ingested via exported CSV/XLSX).
@@ -118,7 +118,7 @@ flowchart TD
 
     subgraph API["FastAPI Application (backend/app)"]
         Router["app.api.router: api_router"]
-        
+
         subgraph Routes["API Routes"]
             R_Health["GET /api/health"]
             R_Auth["GET /api/me"]
@@ -126,7 +126,7 @@ flowchart TD
             R_Workspaces["GET /api/workspaces/*"]
             R_AI["POST /api/workspaces/{id}/chat"]
         end
-        
+
         subgraph Security["Security & Core"]
             SecDep["core.security: require_user"]
             Settings["core.config: settings"]
@@ -263,11 +263,11 @@ sequenceDiagram
 
     %% Deterministic Analysis
     Note over User, Analysis: Phase 2: Deterministic Financial Analysis
-    User->>API: GET /api/workspaces/{id}/analysis (or Dashboard trigger)
+    User->>API: GET /api/workspaces/{id}/analysis (Planned Contract Target / Dashboard)
     API->>DB: Fetch workspace parsed_json / transactions
     DB-->>API: statement_data dict
     API->>Analysis: analyze_bank_statement(statement_data)
-    
+
     activate Analysis
     Analysis->>Analysis: calculate_total_credit(statement_data)
     Analysis->>Analysis: calculate_total_debit(statement_data)
@@ -298,6 +298,8 @@ sequenceDiagram
     AI-->>API: ChatResponse(message, sources, tool_results)
     API-->>User: 200 OK (ChatResponse JSON)
 ```
+
+> **API Registration Status Note:** `GET /api/workspaces/{id}/analysis` is formally defined in [`contracts/api/README.md`](../contracts/api/README.md) as the planned Sprint 2 contract route for retrieving financial analysis envelopes. In the current live FastAPI application (`backend/app/api/routes/workspaces.py`), workspace detail and transaction listing routes are live, while the dedicated `/analysis` route is scheduled for registration. In the interim, deterministic analysis calculations are fully active and invoked internally by the AI tool router (`backend/app/ai/tools.py`) and verified via automated test runners.
 
 ---
 
@@ -522,7 +524,7 @@ WARNING_MISSING_CURRENCY = "Missing statement currency; monetary units unconfirm
      - Traceability aggregates `source_rows` across opening balance, transactions, and closing balance.
 
 8. **`analyze_bank_statement(statement_data, workspace_id=None, *, include_reconciliation_metric=False, include_balance_metrics=False) -> dict[str, Any]`**
-   - **Responsibility:** Produces the standard top-level Financial Analysis Envelope matching [`contracts/examples/financial-analysis.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/financial-analysis.json).
+   - **Responsibility:** Produces the standard top-level Financial Analysis Envelope matching [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json).
    - **Reliability Policy:**
      - Always evaluates balance reconciliation internally, even when `include_reconciliation_metric=False`.
      - `reliability = "insufficient_data"` if currency is missing or if any required inputs are unavailable/malformed.
@@ -543,10 +545,10 @@ WARNING_MISSING_CURRENCY = "Missing statement currency; monetary units unconfirm
 The FinGenie codebase adheres to established software engineering principles. Only patterns with concrete implementations in the code are documented here:
 
 ### 7.1 Functional Core, Imperative Shell (FCIS)
-- **Implementation:** [`backend/app/analysis/bank_kpis.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/analysis/bank_kpis.py) is a purely functional core. It has zero network calls, zero database connections, and zero global mutable state. It accepts standard data dictionaries and returns pure data. The imperative shell resides in [`backend/app/services/upload.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/services/upload.py) and [`backend/app/api/`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/api/), which handle database I/O, storage persistence, and HTTP handling.
+- **Implementation:** [`backend/app/analysis/bank_kpis.py`](../backend/app/analysis/bank_kpis.py) is a purely functional core. It has zero network calls, zero database connections, and zero global mutable state. It accepts standard data dictionaries and returns pure data. The imperative shell resides in [`backend/app/services/upload.py`](../backend/app/services/upload.py) and [`backend/app/api/`](../backend/app/api/), which handle database I/O, storage persistence, and HTTP handling.
 
 ### 7.2 Router Factory Pattern
-- **Implementation:** [`backend/app/api/routes/upload.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/api/routes/upload.py#L31-L34)
+- **Implementation:** [`backend/app/api/routes/upload.py`](../backend/app/api/routes/upload.py#L31-L34)
   ```python
   def create_upload_router(
       parser: BankParser, *, policy: UploadPolicy = DEFAULT_POLICY
@@ -556,12 +558,12 @@ The FinGenie codebase adheres to established software engineering principles. On
 
 ### 7.3 Protocol / Structural Subtyping
 - **Implementation:**
-  - `BankParser` protocol in [`backend/app/services/upload.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/services/upload.py#L42-L46):
+  - `BankParser` protocol in [`backend/app/services/upload.py`](../backend/app/services/upload.py#L42-L46):
     ```python
     class BankParser(Protocol):
         def __call__(self, content: bytes, *, file_kind: str, document_id: UUID) -> BaseModel: ...
     ```
-  - `ToolEvidence` protocol in [`backend/app/ai/number_guard.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/ai/number_guard.py):
+  - `ToolEvidence` protocol in [`backend/app/ai/number_guard.py`](../backend/app/ai/number_guard.py):
     ```python
     class ToolEvidence(Protocol):
         value: object
@@ -571,15 +573,18 @@ The FinGenie codebase adheres to established software engineering principles. On
   This decouples service and guard consumers from concrete class hierarchies.
 
 ### 7.4 Fail-Fast & Strict Input Sanitization
-- **Implementation:** `_to_decimal()` in [`bank_kpis.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/analysis/bank_kpis.py#L40-L120).
+- **Implementation:** `_to_decimal()` in [`bank_kpis.py`](../backend/app/analysis/bank_kpis.py#L40-L120).
   Rather than blindly stripping all non-digits, `_to_decimal()` enforces regex structure on the integer part (`INTERNATIONAL_GROUPING_RE` or `INDIAN_GROUPING_RE`) and fractional part (`DECIMAL_PART_RE`). Any malformed groupings immediately raise `InvalidOperation`.
 
 ### 7.5 Guarded Execution & Post-Generation Safety Filter
-- **Implementation:** [`backend/app/ai/number_guard.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/ai/number_guard.py) and [`backend/app/ai/chatbot.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/ai/chatbot.py).
+- **Implementation:** [`backend/app/ai/number_guard.py`](../backend/app/ai/number_guard.py) and [`backend/app/ai/chatbot.py`](../backend/app/ai/chatbot.py).
   Before any LLM-generated financial explanation is returned to a client, `verify_tool_results_text()` parses all numeric tokens in the response text and asserts that every stated number is directly backed by an executed `ToolResult`. If an unsupported number is detected, the AI assistant re-prompts the model to self-correct; if correction fails, it raises an HTTP 502 exception rather than emitting inaccurate financial claims.
 
+  **Important Semantic Scope & Limitation:**
+  Number Guard provides conservative *numeric-literal verification*, ensuring that every number appearing in the generated text is backed by available tool results. However, **it does not perform semantic validation of metric labels**. Because bare numbers and currency-prefixed literals are checked against the set of executed tool values, Number Guard verifies numeric existence, not prose meaning. Consequently, it does not guarantee that a valid numeric amount has been mapped to the semantically correct KPI label (e.g., if an LLM erroneously writes "Your total credit was ₹2,500.00" when ₹2,500.00 was actually the total debit, Number Guard will confirm that ₹2,500.00 is a verified tool result and permit the response). System designers and prompt engineers must therefore not overstate Number Guard's guarantees: it prevents numeric hallucination, but cannot eliminate semantic misattribution of verified figures in conversational prose.
+
 ### 7.6 Standardized Audit Envelope Pattern
-- **Implementation:** Shared across [`contracts/examples/financial-analysis.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/financial-analysis.json) and `analyze_bank_statement()`.
+- **Implementation:** Shared across [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json) and `analyze_bank_statement()`.
   Every metric is encapsulated in a self-describing dictionary containing its value, unit, status, reason, calculation ID, and precise source references.
 
 ---
@@ -634,16 +639,16 @@ FinGenie enforces a strict financial integrity invariant: **never silently subst
 
 ## 9. References to Relevant Source Files
 
-- [`backend/app/analysis/bank_kpis.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/analysis/bank_kpis.py): Pure Python bank statement KPI calculations.
-- [`backend/tests/analysis/test_bank_kpis.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/tests/analysis/test_bank_kpis.py): 119 unit and contract-verification tests.
-- [`backend/app/schemas/bank_statement.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/schemas/bank_statement.py): Pydantic data models for bank statements and transactions.
-- [`backend/app/parsers/bank_statement/csv_parser.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/parsers/bank_statement/csv_parser.py): CSV streaming parser with alias resolution.
-- [`backend/app/parsers/bank_statement/xlsx_parser.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/parsers/bank_statement/xlsx_parser.py): OpenPyXL spreadsheet parser.
-- [`backend/app/services/upload.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/services/upload.py): Upload coordination and persistence service.
-- [`backend/app/services/upload_validation.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/services/upload_validation.py): Upload limits and file validation policies.
-- [`backend/app/ai/tools.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/ai/tools.py): Deterministic tool registry and execution routing.
-- [`backend/app/ai/number_guard.py`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/backend/app/ai/number_guard.py): Deterministic numeric verification filter.
-- [`contracts/examples/bank-statement.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/bank-statement.json): Synthetic contract fixture for bank statements.
-- [`contracts/examples/financial-analysis.json`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/contracts/examples/financial-analysis.json): Synthetic contract fixture for financial analysis.
-- [`docs/architecture.md`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/docs/architecture.md): High-level system architecture and module boundaries.
-- [`docs/database-schema.md`](file:///c:/Users/jashp/OneDrive/Desktop/Project/FinGenie/docs/database-schema.md): Database tables, constraints, and RLS policies.
+- [`backend/app/analysis/bank_kpis.py`](../backend/app/analysis/bank_kpis.py): Pure Python bank statement KPI calculations.
+- [`backend/tests/analysis/test_bank_kpis.py`](../backend/tests/analysis/test_bank_kpis.py): 119 unit and contract-verification tests.
+- [`backend/app/schemas/bank_statement.py`](../backend/app/schemas/bank_statement.py): Pydantic data models for bank statements and transactions.
+- [`backend/app/parsers/bank_statement/csv_parser.py`](../backend/app/parsers/bank_statement/csv_parser.py): CSV streaming parser with alias resolution.
+- [`backend/app/parsers/bank_statement/xlsx_parser.py`](../backend/app/parsers/bank_statement/xlsx_parser.py): OpenPyXL spreadsheet parser.
+- [`backend/app/services/upload.py`](../backend/app/services/upload.py): Upload coordination and persistence service.
+- [`backend/app/services/upload_validation.py`](../backend/app/services/upload_validation.py): Upload limits and file validation policies.
+- [`backend/app/ai/tools.py`](../backend/app/ai/tools.py): Deterministic tool registry and execution routing.
+- [`backend/app/ai/number_guard.py`](../backend/app/ai/number_guard.py): Deterministic numeric verification filter.
+- [`contracts/examples/bank-statement.json`](../contracts/examples/bank-statement.json): Synthetic contract fixture for bank statements.
+- [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json): Synthetic contract fixture for financial analysis.
+- [`docs/architecture.md`](architecture.md): High-level system architecture and module boundaries.
+- [`docs/database-schema.md`](database-schema.md): Database tables, constraints, and RLS policies.
