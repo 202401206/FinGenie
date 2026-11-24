@@ -11,6 +11,7 @@ from app.db.dependencies import get_parsed_document_repository, get_workspace_re
 from app.main import app as production_app
 from app.services.source_dependencies import (
     get_source_upload_access,
+    get_upload_attempt_service,
     get_upload_recovery_service,
 )
 from app.services.source_errors import SourceOutcomeUnknown
@@ -21,7 +22,9 @@ from tests.upload_fixtures import UploadHarness
 def upload_client():
     harness = UploadHarness()
     app = FastAPI()
-    app.include_router(create_upload_router(harness.parse), prefix="/api")
+    app.include_router(
+        create_upload_router(harness.parse, balance_parser=harness.parse), prefix="/api"
+    )
 
     async def auth_client():
         async with httpx.AsyncClient(
@@ -43,6 +46,9 @@ def upload_client():
     app.dependency_overrides[get_parsed_document_repository] = lambda: harness.save
     app.dependency_overrides[get_upload_recovery_service] = lambda: harness.recovery
     app.dependency_overrides[get_workspace_repository] = lambda: harness.reads
+    # These route-isolation tests use controlled collaborators; journal ordering
+    # and durable SQL behavior have their own production-flow integration tests.
+    app.dependency_overrides[get_upload_attempt_service] = lambda: None
     with TestClient(app) as client:
         yield client, harness
 
@@ -107,7 +113,7 @@ def test_unauthenticated_request_does_not_parse_body_or_write(upload_client):
             "owner_id": "foreign",
         },
         {"user_type": "current", "document_type": "bank_statement"},
-        {"user_type": "business", "document_type": "balance_sheet"},
+        {"user_type": "personal", "document_type": "balance_sheet"},
     ],
 )
 def test_invalid_fields_never_reach_parser(upload_client, fields):
@@ -209,7 +215,7 @@ def test_rejected_auth_cannot_reach_parser(upload_client):
 def test_file_is_closed_after_parsing_failure(upload_client, monkeypatch):
     from starlette.datastructures import UploadFile
 
-    from app.services.upload import BankStatementParserError
+    from app.parsers.errors import BankStatementParserError
 
     client, harness = upload_client
     harness.stage = "parse"

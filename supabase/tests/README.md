@@ -18,8 +18,29 @@ Installing the npm package needs registry access; the tests themselves run offli
 
 `database.mjs` builds a minimal test-only Auth/Storage schema and applies every
 migration in filename order to an in-memory PostgreSQL engine (PGlite 0.3.14).
-`run.mjs` executes the four SQL suites and checks that synthetic fixtures rolled
+`run.mjs` executes the eight SQL suites and checks that synthetic fixtures rolled
 back, including cancellation rows. No test edits a hosted Supabase project.
+
+The settings suite covers preference partial updates/validation, owner RLS,
+resumable deletion evidence, source absence, generation rollback prevention and
+late-upload rejection. The SQL runner also checks the new settings/deletion tables
+are empty after fixture rollback. `backend/tests/integration/test_settings.py`
+exercises the public settings APIs with real PostgreSQL and mocked Auth/Storage,
+including failures, lost responses, batches, empty accounts and cross-user safety.
+
+`balance_recovery.sql` checks balance completion/conflict preservation, zero-row
+receipts, original-ID cleanup/repeats, caller isolation and late-write rejection.
+Its matching Python component tests are in
+`backend/tests/integration/test_balance_recovery_flow.py`. The original bank
+recovery suite remains part of every complete run.
+
+`upload_attempts.sql` covers immutable owned context, exact JSON amounts,
+anonymous/foreign denial, revision checks, unverified completion/cleanup rejection,
+sticky review state, deletion of journal-only payloads and invoker privileges.
+The runner also verifies upload_attempts is empty after fixture rollback.
+`backend/tests/integration/test_upload_journal.py` exercises restart recovery,
+lost replies, saved-source preservation, cleanup failures, overlapping request
+settlement, refreshed credentials and Settings deletion with real SQL/RLS.
 
 `bridge.mjs` opens no network port. It accepts parameterized SQL over stdio from
 the Python component test, uses the authenticated role and synthetic JWT subject

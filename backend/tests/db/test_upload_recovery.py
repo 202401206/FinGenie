@@ -11,7 +11,6 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.security import get_auth_client, require_user
-from app.db.errors import UnsupportedDocumentType
 from app.db.repositories.upload_recovery import UploadRecoveryRepository
 from app.schemas.responses import CurrentUser
 from app.services.source_dependencies import get_upload_recovery_service
@@ -68,11 +67,11 @@ def test_reconciliation_uses_original_token_ids_and_exact_expected_data():
 
 
 @pytest.mark.parametrize(
-    "case", ["foreign", "unsupported", "wrong_document", "float", "extra"]
+    "case", ["foreign", "wrong_shape_for_balance", "wrong_document", "float", "extra"]
 )
 def test_invalid_context_stops_before_network_access(case):
     attempt = make_attempt(user_id=OTHER) if case == "foreign" else make_attempt()
-    if case == "unsupported":
+    if case == "wrong_shape_for_balance":
         attempt = make_attempt(user_type="business", document_type="balance_sheet")
     statement = parsed_statement(attempt)
     if case == "wrong_document":
@@ -85,9 +84,7 @@ def test_invalid_context_stops_before_network_access(case):
     def unexpected(request):
         pytest.fail("Invalid recovery context must not reach Supabase.")
 
-    error = {"foreign": ValueError, "unsupported": UnsupportedDocumentType}.get(
-        case, ParsedDocumentRejected
-    )
+    error = ValueError if case == "foreign" else ParsedDocumentRejected
     with pytest.raises(error):
         call(unexpected, attempt, statement)
 

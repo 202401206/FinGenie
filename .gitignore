@@ -15,6 +15,7 @@ __pycache__/
 .coverage
 htmlcov/
 *.egg-info/
+/test-results/
 
 # Frontend / generated output
 node_modules/

@@ -25,7 +25,7 @@ class SourceOutcomeUnknown(SourceUnavailable):
     def __init__(
         self,
         operation: Literal[
-            "reservation", "upload", "removal", "finalization", "recovery"
+            "reservation", "upload", "removal", "finalization", "recovery", "journal"
         ],
     ) -> None:
         self.operation = operation

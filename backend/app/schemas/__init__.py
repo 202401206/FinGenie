@@ -1,5 +1,11 @@
 """Public schemas for FinGenie."""
 
+from app.schemas.balance_sheet import (
+    BalanceSheet,
+    Equity,
+    LineItem,
+    SectionItems,
+)
 from app.schemas.bank_statement import (
     BankStatement,
     BankTransaction,
@@ -18,13 +24,17 @@ from app.schemas.responses import (
 )
 
 __all__ = [
+    "BalanceSheet",
     "BankStatement",
     "BankTransaction",
     "ChatRequest",
     "ChatResponse",
     "DocumentContext",
     "DocumentType",
+    "Equity",
     "HealthResponse",
+    "LineItem",
+    "SectionItems",
     "SourceLocation",
     "SourceMetadata",
     "SourceRefModel",

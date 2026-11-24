@@ -7,8 +7,10 @@ import simplejson
 from pydantic import SecretStr
 
 from app.db.errors import UnsupportedDocumentType
-from app.db.parsed_models import ParsedBankStatement
-from app.db.repositories.parsed_documents import encode_date_or_uuid
+from app.db.repositories.parsed_documents import (
+    encode_date_or_uuid,
+    validate_document_data,
+)
 from app.schemas.common import DocumentType
 from app.services.recovery_models import RecoveryDecision
 from app.services.source_errors import (
@@ -32,7 +34,10 @@ class UploadRecoveryRepository:
     def _attempt_parameters(self, attempt: SourceAttempt) -> dict[str, object]:
         if attempt.user_id != self._user_id:
             raise ValueError("Recovery owner must be the verified caller.")
-        if attempt.document_type != DocumentType.BANK_STATEMENT:
+        if attempt.document_type not in (
+            DocumentType.BANK_STATEMENT,
+            DocumentType.BALANCE_SHEET,
+        ):
             raise UnsupportedDocumentType()
         return {
             "p_workspace_id": str(attempt.workspace_id),
@@ -45,7 +50,13 @@ class UploadRecoveryRepository:
     ) -> RecoveryDecision:
         parameters = self._attempt_parameters(attempt)
         try:
-            statement = ParsedBankStatement.model_validate(parsed_data)
+            statement = validate_document_data(attempt.document_type, parsed_data)
+            if attempt.document_type == DocumentType.BANK_STATEMENT:
+                function = "begin_upload_recovery"
+                transaction_count = len(statement.transactions)
+            else:
+                function = "begin_balance_sheet_recovery"
+                transaction_count = 0
             if statement.source_metadata.document_id != attempt.document_id:
                 raise ValueError()
             parameters["p_expected_json"] = statement.model_dump(mode="python")
@@ -59,7 +70,7 @@ class UploadRecoveryRepository:
         except (ValueError, TypeError):
             raise ParsedDocumentRejected() from None
 
-        result = await self._call("begin_upload_recovery", body)
+        result = await self._call(function, body)
         try:
             decision = RecoveryDecision.model_validate(result)
             if decision.receipt is not None:
@@ -67,7 +78,7 @@ class UploadRecoveryRepository:
                 if (
                     receipt.workspace_id != attempt.workspace_id
                     or receipt.document_id != attempt.document_id
-                    or receipt.transaction_count != len(statement.transactions)
+                    or receipt.transaction_count != transaction_count
                 ):
                     raise ValueError()
             return decision

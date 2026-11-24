@@ -96,9 +96,11 @@ def validate_fields(
             "invalid_upload_fields",
             "Valid user_type and document_type are required.",
         ) from None
-    if document != DocumentType.BANK_STATEMENT:
+    if document == DocumentType.BALANCE_SHEET and user != UserType.BUSINESS:
         raise UploadValidationError(
-            422, "unsupported_document_type", "Only bank statements are supported."
+            422,
+            "unsupported_document_type",
+            "Balance sheets require business user type.",
         )
     return user, document
 

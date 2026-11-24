@@ -1,4 +1,4 @@
-"""Save a bank statement and its transactions through one database call."""
+"""Save a validated document through its atomic database function."""
 
 from datetime import date
 from uuid import UUID
@@ -9,6 +9,7 @@ from pydantic import SecretStr, ValidationError
 
 from app.db.errors import UnsupportedDocumentType, WorkspaceNotFound
 from app.db.parsed_models import ParsedBankStatement, ParsedSaveReceipt
+from app.db.parsed_read_models import ParsedBalanceSheet
 from app.schemas.common import DocumentType
 from app.services.source_errors import (
     ParsedDocumentRejected,
@@ -28,6 +29,33 @@ def encode_date_or_uuid(value: object) -> str:
     raise TypeError("Parsed data contains an unsupported JSON value.")
 
 
+def reject_float_values(value: object) -> None:
+    """Prior-period and extra balance fields must keep exact numbers too."""
+    if isinstance(value, float):
+        raise ValueError("Use Decimal values rather than binary floats.")
+    if isinstance(value, dict):
+        for item in value.values():
+            reject_float_values(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            reject_float_values(item)
+
+
+def validate_document_data(
+    document_type: DocumentType, parsed_data: dict[str, object]
+) -> ParsedBankStatement | ParsedBalanceSheet:
+    """Use the same stored contract for saving and recovery reconciliation."""
+    if document_type == DocumentType.BANK_STATEMENT:
+        return ParsedBankStatement.model_validate(parsed_data)
+    if document_type == DocumentType.BALANCE_SHEET:
+        reject_float_values(parsed_data)
+        statement = ParsedBalanceSheet.model_validate(parsed_data)
+        if statement.currency not in (None, "INR", "USD"):
+            raise ValueError("Unsupported balance-sheet currency.")
+        return statement
+    raise UnsupportedDocumentType()
+
+
 class ParsedDocumentRepository:
     def __init__(
         self, client: httpx.AsyncClient, user_id: UUID, access_token: str
@@ -42,11 +70,16 @@ class ParsedDocumentRepository:
         attempt = reservation.attempt
         if attempt.user_id != self._user_id:
             raise ValueError("Document owner must be the verified caller.")
-        if attempt.document_type != DocumentType.BANK_STATEMENT:
-            raise UnsupportedDocumentType()
-
         try:
-            statement = ParsedBankStatement.model_validate(parsed_data)
+            statement = validate_document_data(attempt.document_type, parsed_data)
+            if attempt.document_type == DocumentType.BANK_STATEMENT:
+                function = "finalize_bank_statement"
+                transaction_count = len(statement.transactions)
+            elif attempt.document_type == DocumentType.BALANCE_SHEET:
+                function = "finalize_balance_sheet"
+                transaction_count = 0
+            else:
+                raise UnsupportedDocumentType()
             if statement.source_metadata.document_id != attempt.document_id:
                 raise ValueError("Parsed source does not match the reserved document.")
 
@@ -68,7 +101,7 @@ class ParsedDocumentRepository:
 
         try:
             response = await self._client.post(
-                "/rest/v1/rpc/finalize_bank_statement",
+                f"/rest/v1/rpc/{function}",
                 headers={
                     "Authorization": f"Bearer {self._token.get_secret_value()}",
                     "Content-Type": "application/json",
@@ -103,7 +136,7 @@ class ParsedDocumentRepository:
             if (
                 receipt.workspace_id != attempt.workspace_id
                 or receipt.document_id != attempt.document_id
-                or receipt.transaction_count != len(statement.transactions)
+                or receipt.transaction_count != transaction_count
             ):
                 raise ValueError()
             return receipt

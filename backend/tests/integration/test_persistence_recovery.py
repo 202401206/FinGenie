@@ -11,12 +11,13 @@ import subprocess
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from app.core.security import require_user
-from app.db.errors import WorkspaceNotFound
+from app.db.errors import UnsupportedDocumentType, WorkspaceNotFound
 from app.db.repositories.parsed_documents import ParsedDocumentRepository
 from app.db.repositories.source_uploads import SourceReservationRepository
 from app.db.repositories.upload_recovery import UploadRecoveryRepository
@@ -28,6 +29,7 @@ from app.services.source_errors import (
 )
 from app.services.source_storage import SourceStorage
 from app.services.upload_recovery import UploadRecoveryService
+from tests.db.test_balance_document_saves import balance_attempt, balance_statement
 from tests.db.test_parsed_documents import parsed_statement
 from tests.source_fixtures import OTHER, OWNER, make_attempt
 
@@ -97,11 +99,12 @@ class LocalSupabase:
         self.timeout_after = None
         self.reject_save = False
         self.reject_delete = False
+        self.reject_delete_token = None
+        self.tokens = {"Bearer token-a": OWNER, "Bearer token-b": OTHER}
 
     def handle(self, request):
-        user = {"Bearer token-a": OWNER, "Bearer token-b": OTHER}.get(
-            request.headers.get("authorization")
-        )
+        authorization = request.headers.get("authorization")
+        user = self.tokens.get(authorization)
         if user is None:
             return httpx.Response(401)
         if request.url.path == "/auth/v1/user":
@@ -110,10 +113,30 @@ class LocalSupabase:
         path = request.url.path
         if path.startswith("/rest/v1/rpc/"):
             function = path.rsplit("/", 1)[1]
-            if function == "finalize_bank_statement" and self.reject_save:
+            if self.reject_save and function in {
+                "finalize_bank_statement",
+                "finalize_balance_sheet",
+            }:
                 return httpx.Response(503)
             arguments = {
-                "reserve_source_upload": [
+                "list_upload_attempts": [("limit", "integer"), ("offset", "integer")],
+                "create_upload_attempt": [
+                    ("attempt_id", "uuid"),
+                    ("context", "jsonb"),
+                    ("expected_json", "jsonb"),
+                ],
+                "begin_journal_recovery": [
+                    ("attempt_id", "uuid"),
+                    ("revision", "bigint"),
+                ],
+                "settle_upload_attempt": [
+                    ("attempt_id", "uuid"),
+                    ("revision", "bigint"),
+                    ("status", "text"),
+                    ("error_code", "text"),
+                ],
+                "get_upload_generation": [],
+                "reserve_source_upload_at_generation": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("user_type", "text"),
@@ -121,13 +144,25 @@ class LocalSupabase:
                     ("name", "text"),
                     ("original_filename", "text"),
                     ("file_extension", "text"),
+                    ("generation", "bigint"),
                 ],
                 "finalize_bank_statement": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("parsed_json", "jsonb"),
                 ],
+                "finalize_balance_sheet": [
+                    ("workspace_id", "uuid"),
+                    ("document_id", "uuid"),
+                    ("parsed_json", "jsonb"),
+                ],
                 "begin_upload_recovery": [
+                    ("workspace_id", "uuid"),
+                    ("document_id", "uuid"),
+                    ("file_extension", "text"),
+                    ("expected_json", "jsonb"),
+                ],
+                "begin_balance_sheet_recovery": [
                     ("workspace_id", "uuid"),
                     ("document_id", "uuid"),
                     ("file_extension", "text"),
@@ -145,7 +180,7 @@ class LocalSupabase:
                 expressions.append(f"($1::jsonb{operator}'p_{name}')::{kind}")
             result = self.query(
                 f"select public.{function}({','.join(expressions)})::text as body",
-                [request.content.decode()],
+                [request.content.decode()] if arguments else [],
                 user,
             )
             if "error" in result:
@@ -180,6 +215,8 @@ class LocalSupabase:
                     )
                 return httpx.Response(200, json={"Key": f"financial-documents/{name}"})
             assert request.method == "DELETE"
+            if authorization and authorization == self.reject_delete_token:
+                return httpx.Response(401)
             if self.reject_delete:
                 return httpx.Response(503)
             names = json.loads(request.content)["prefixes"]
@@ -200,6 +237,7 @@ class LocalSupabase:
             "workspaces",
             "documents",
             "transactions",
+            "upload_attempts",
         }
         params = request.url.params
         values, filters = [], []
@@ -220,7 +258,13 @@ class LocalSupabase:
             order = " order by " + params["order"].replace(".", " ").replace(",", ", ")
         limit, offset = int(params.get("limit", "100")), int(params.get("offset", "0"))
         columns = params["select"]
-        assert all(c.replace("_", "").isalpha() for c in columns.split(","))
+        assert all(
+            c.replace("_", "").replace(":", "").isalpha() for c in columns.split(",")
+        )
+        columns = ",".join(
+            f"{c.split(':')[1]} as {c.split(':')[0]}" if ":" in c else c
+            for c in columns.split(",")
+        )
         result = self.query(
             f"select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb)::text as body from "
             f"(select {columns} from public.{table}{where}{order} limit {limit} offset {offset}) r",
@@ -310,10 +354,79 @@ def test_reserve_upload_save_read_and_two_user_isolation(database):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("currency,scale", [("INR", 100000), ("USD", 1), (None, None)])
+def test_balance_snapshot_round_trip_keeps_exact_values_and_owner_rls(
+    database, currency, scale
+):
+    server = LocalSupabase(database)
+
+    async def run():
+        async with helpers(server) as (client, user):
+            attempt = balance_attempt()
+            statement = balance_statement(attempt)
+            exact = Decimal("12345678901234567890.1234567890123456789")
+            statement.update(currency=currency, unit_scale=scale)
+            statement["assets"]["current"][0]["value"] = exact
+            statement["prior_period"] = {"total": exact}
+            statement["equity"]["retained_earnings"] = Decimal("-0.1234567890123456789")
+            receipt = await store(client, user.id, "token-a", attempt, statement)
+            assert receipt.transaction_count == 0
+            reads = WorkspaceRepository(client, user.id, "token-a")
+            context = await reads.get_parsed_document(attempt.workspace_id)
+            assert context.parsed_json.assets.current[0].value == exact
+            assert context.parsed_json.prior_period["total"] == exact
+            assert context.parsed_json.currency == currency
+            assert context.parsed_json.unit_scale == scale
+            assert context.parsed_json.equity.retained_earnings == Decimal(
+                "-0.1234567890123456789"
+            )
+            details = await reads.get_workspace(attempt.workspace_id)
+            assert details.documents[0].period_start is None
+            assert details.documents[0].period_end is None
+            assert "parsed_json" not in details.documents[0].model_dump()
+            with pytest.raises(UnsupportedDocumentType):
+                await reads.list_transactions(attempt.workspace_id)
+            assert (
+                database(
+                    "select count(*)::int as n from public.transactions where document_id=$1",
+                    [str(attempt.document_id)],
+                    user.id,
+                )["rows"][0]["n"]
+                == 0
+            )
+            async with helpers(server, "token-b") as (other, other_user):
+                with pytest.raises(WorkspaceNotFound):
+                    await WorkspaceRepository(
+                        other, other_user.id, "token-b"
+                    ).get_parsed_document(attempt.workspace_id)
+
+    asyncio.run(run())
+
+
+def test_lost_balance_receipt_preserves_completed_snapshot_and_source(database):
+    server = LocalSupabase(database)
+
+    async def run():
+        async with helpers(server) as (client, user):
+            attempt = balance_attempt()
+            statement = balance_statement(attempt)
+            server.timeout_after = "finalize_balance_sheet"
+            with pytest.raises(SourceOutcomeUnknown):
+                await store(client, user.id, "token-a", attempt, statement)
+            context = await WorkspaceRepository(
+                client, user.id, "token-a"
+            ).get_parsed_document(attempt.workspace_id)
+            assert context.document_id == attempt.document_id
+            assert context.parsed_json.assets.total == Decimal(300)
+            assert attempt.path in server.files
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(
     "stage,expected",
     [
-        ("reserve_source_upload", "cleaned"),
+        ("reserve_source_upload_at_generation", "cleaned"),
         ("upload", "cleaned"),
         ("finalize_bank_statement", "completed"),
     ],
@@ -452,6 +565,16 @@ def test_other_users_recovery_cannot_change_the_owners_saved_data(database):
     asyncio.run(run())
 
 
+@asynccontextmanager
+async def local_api_connection(server):
+    async with httpx.AsyncClient(
+        base_url="https://synthetic.supabase.co",
+        headers={"apikey": "sb_publishable_synthetic"},
+        transport=httpx.MockTransport(server.handle),
+    ) as client:
+        yield client
+
+
 @pytest.fixture
 def api_database_client(database):
     """Actual API/parser/repositories/RLS; synthetic Auth and Storage transport."""
@@ -464,11 +587,7 @@ def api_database_client(database):
     previous = app.dependency_overrides.copy()
 
     async def connection():
-        async with httpx.AsyncClient(
-            base_url="https://synthetic.supabase.co",
-            headers={"apikey": "sb_publishable_synthetic"},
-            transport=httpx.MockTransport(server.handle),
-        ) as client:
+        async with local_api_connection(server) as client:
             yield client
 
     app.dependency_overrides[get_auth_client] = connection
@@ -479,7 +598,15 @@ def api_database_client(database):
         app.dependency_overrides = previous
 
 
-def statement_upload(client, content, kind="csv", token="token-a"):
+def statement_upload(
+    client,
+    content,
+    kind="csv",
+    token="token-a",
+    *,
+    user_type="personal",
+    document_type="bank_statement",
+):
     mime = (
         "text/csv"
         if kind == "csv"
@@ -488,12 +615,12 @@ def statement_upload(client, content, kind="csv", token="token-a"):
     return client.post(
         "/api/upload",
         headers={"Authorization": f"Bearer {token}"},
-        data={"user_type": "personal", "document_type": "bank_statement"},
+        data={"user_type": user_type, "document_type": document_type},
         files={"file": (f"synthetic.{kind}", content, mime)},
     )
 
 
-def layout_bytes(layout, kind):
+def layout_bytes(layout, kind, *, document_type="bank_statement"):
     import csv
     import io
 
@@ -504,6 +631,8 @@ def layout_bytes(layout, kind):
         if layout == "a"
         else "synthetic_bank_layout_b.csv"
     )
+    if document_type == "balance_sheet":
+        name = f"synthetic_balance_sheet_layout_{layout}.csv"
     content = (ROOT / "backend/tests/parsers/fixtures" / name).read_bytes()
     if kind == "csv":
         return content
@@ -572,37 +701,182 @@ def test_public_upload_reads_and_two_user_isolation(api_database_client, layout,
 
 
 @pytest.mark.parametrize(
+    "layout,currency,scale,reporting_date,first_value",
+    [
+        ("a", "INR", 100_000, "2026-01-31", 100),
+        ("b", "USD", 1_000_000, "2026-03-31", 500),
+    ],
+)
+@pytest.mark.parametrize("kind", ["csv", "xlsx"])
+def test_business_balance_sheet_upload_saves_reported_data(
+    api_database_client, layout, currency, scale, reporting_date, first_value, kind
+):
+    client, server = api_database_client
+    content = layout_bytes(layout, kind, document_type="balance_sheet")
+    response = statement_upload(
+        client, content, kind, user_type="business", document_type="balance_sheet"
+    )
+    assert response.status_code == 201, response.text
+    result = response.json()
+    assert set(result) == {"workspace", "document"}
+    assert set(result["document"]) == {"id", "status"}
+    workspace = result["workspace"]
+    document = result["document"]
+    assert workspace["document_type"] == "balance_sheet"
+    assert workspace["user_type"] == "business"
+    assert workspace["name"].startswith("Balance sheet ")
+    assert document["status"] == "parsed"
+    assert list(server.files.values()) == [content]
+
+    rows = server.query(
+        "select parsed_json::text as parsed, currency, period_start, period_end "
+        "from public.documents where id = $1::uuid",
+        [document["id"]],
+        OWNER,
+    )["rows"]
+    (saved,) = rows
+    assert saved["period_start"] is saved["period_end"] is None
+    assert saved["currency"] == currency
+    parsed = json.loads(saved["parsed"], parse_float=Decimal)
+    assert (parsed["currency"], parsed["unit_scale"]) == (currency, scale)
+    assert parsed["reporting_date"] == reporting_date
+    assert parsed["source_locations"]["reporting_date"]["source_row"] == 2
+    assert parsed["source_metadata"]["document_id"] == document["id"]
+    assert parsed["source_metadata"]["sheet_name"] == (
+        "Synthetic account" if kind == "xlsx" else None
+    )
+    cash = parsed["assets"]["current"][0]
+    assert (cash["value"], cash["source_row"]) == (first_value, 6)
+    if layout == "b":
+        assert {
+            "source_row": 6,
+            "raw_label": "Cash and Cash Equivalents",
+            "raw_value": "2025-03-31: 450",
+            "reason": "prior_period_value",
+        } in parsed["unmapped"]
+    transactions = server.query(
+        "select count(*)::int as total from public.transactions where document_id=$1::uuid",
+        [document["id"]],
+        OWNER,
+    )
+    assert transactions["rows"] == [{"total": 0}]
+
+
+def test_balance_sheet_upload_preserves_unknown_metadata_and_decimal(
+    api_database_client,
+):
+    client, server = api_database_client
+    content = layout_bytes("a", "csv", document_type="balance_sheet")
+    content = (
+        b"\n".join(
+            line for line in content.splitlines() if not line.startswith(b"Currency:")
+        )
+        .replace(b"Cash,100", b"Cash,100.1234567890123456789")
+        .replace(b"Receivables,50", b"Receivables,")
+    )
+    response = statement_upload(
+        client, content, user_type="business", document_type="balance_sheet"
+    )
+    assert response.status_code == 201, response.text
+    result = server.query(
+        "select currency, parsed_json::text as parsed from public.documents where id=$1::uuid",
+        [response.json()["document"]["id"]],
+        OWNER,
+    )
+    saved = result["rows"][0]
+    parsed = json.loads(saved["parsed"], parse_float=Decimal)
+    assert saved["currency"] is parsed["currency"] is parsed["unit_scale"] is None
+    assert [row["value"] for row in parsed["assets"]["current"]] == [
+        Decimal("100.1234567890123456789"),
+        None,
+    ]
+
+
+@pytest.mark.parametrize(
+    "user_type,expected_code",
+    [
+        ("personal", "unsupported_document_type"),
+        ("business", "statement_parse_failed"),
+    ],
+)
+def test_rejected_balance_sheet_does_not_write(
+    api_database_client, user_type, expected_code
+):
+    client, server = api_database_client
+    counts = """
+        select (select count(*)::int from public.workspaces) as workspaces,
+               (select count(*)::int from public.documents) as documents,
+               (select count(*)::int from public.upload_attempts) as attempts
+    """
+    before = server.query(counts, user=OWNER)["rows"]
+    content = layout_bytes("a", "csv", document_type="balance_sheet")
+    if user_type == "business":
+        content = content.replace(b"2026-01-31", b"invalid-synthetic-date")
+    response = statement_upload(
+        client, content, user_type=user_type, document_type="balance_sheet"
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == expected_code
+    assert "invalid-synthetic-date" not in response.text
+    assert not server.files
+    assert server.query(counts, user=OWNER)["rows"] == before
+
+
+@pytest.mark.parametrize("document_type", ["bank_statement", "balance_sheet"])
+@pytest.mark.parametrize(
     "fault,status,remaining",
     [
-        ("finalize_bank_statement", 201, True),
-        ("reserve_source_upload", 503, False),
+        ("finalize", 201, True),
+        ("reserve_source_upload_at_generation", 503, False),
         ("upload", 503, False),
         ("save_failure", 503, False),
         ("cleanup_failure", 503, True),
     ],
 )
-def test_public_upload_real_sql_recovery(api_database_client, fault, status, remaining):
+def test_public_upload_real_sql_recovery(
+    api_database_client, document_type, fault, status, remaining
+):
     client, server = api_database_client
     before = server.query("select id::text from public.workspaces", user=OWNER)["rows"]
     if fault in {"save_failure", "cleanup_failure"}:
         server.reject_save = True
         server.reject_delete = fault == "cleanup_failure"
     else:
-        server.timeout_after = fault
-    response = statement_upload(client, layout_bytes("a", "csv"))
+        server.timeout_after = (
+            f"finalize_{document_type}" if fault == "finalize" else fault
+        )
+    content = layout_bytes("a", "csv", document_type=document_type)
+    response = statement_upload(
+        client,
+        content,
+        user_type="business" if document_type == "balance_sheet" else "personal",
+        document_type=document_type,
+    )
     assert response.status_code == status, response.text
     assert bool(server.files) is remaining
     after = server.query("select id::text from public.workspaces", user=OWNER)["rows"]
     assert len(after) - len(before) == (1 if remaining else 0)
     assert "file_path" not in response.text
     if status == 201:
-        workspace_id = response.json()["workspace"]["id"]
-        headers = {"Authorization": "Bearer token-a"}
-        page = client.get(
-            f"/api/workspaces/{workspace_id}/transactions", headers=headers
+        body = response.json()
+        assert body["document"]["status"] == "parsed"
+        assert list(server.files.values()) == [content]
+        workspace_id = body["workspace"]["id"]
+        journal = server.query(
+            "select status, (receipt->>'transaction_count')::int as transaction_count "
+            "from public.upload_attempts where workspace_id = $1::uuid",
+            [workspace_id],
+            OWNER,
         )
-        assert page.status_code == 200
-        assert page.json()["total"] == 3
+        count = 0 if document_type == "balance_sheet" else 3
+        assert journal["rows"] == [{"status": "completed", "transaction_count": count}]
+        if document_type == "bank_statement":
+            page = client.get(
+                f"/api/workspaces/{workspace_id}/transactions",
+                headers={"Authorization": "Bearer token-a"},
+            )
+            assert page.status_code == 200
+            assert page.json()["total"] == 3
         return
     if fault == "cleanup_failure":
         assert response.json()["detail"]["code"] == "cleanup_required"
@@ -681,3 +955,228 @@ def test_footer_words_in_narration_survive_the_complete_save_and_read(
     ]
     assert [item["source_row"] for item in page.json()["items"]] == [2, 3]
     assert content in server.files.values()
+
+
+def test_uploaded_bank_statement_feeds_owned_analysis(api_database_client):
+    client, _ = api_database_client
+    uploaded = statement_upload(client, layout_bytes("a", "csv"))
+    assert uploaded.status_code == 201
+    workspace_id = uploaded.json()["workspace"]["id"]
+    document_id = uploaded.json()["document"]["id"]
+    url = f"/api/workspaces/{workspace_id}/analysis"
+
+    result = client.get(url, headers={"Authorization": "Bearer token-a"})
+    assert result.status_code == 200, result.text
+    payload = json.loads(result.content, parse_float=Decimal)
+    assert payload["workspace_id"] == workspace_id
+    assert payload["reliability"] == "valid"
+    metric = next(item for item in payload["metrics"] if item["key"] == "net_cash_flow")
+    assert metric["value"] == 2500
+    assert metric["source_refs"][0]["document_id"] == document_id
+    assert metric["source_refs"][0]["source_rows"] == [6, 7, 8]
+    assert (
+        client.get(url, headers={"Authorization": "Bearer token-b"}).status_code == 404
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,user_type,layout,summary_text,calculation",
+    [
+        (
+            "bank_statement",
+            "personal",
+            "a",
+            "Net cash flow is INR 2500.",
+            "bank.net_cash_flow.v1",
+        ),
+        (
+            "balance_sheet",
+            "business",
+            "a",
+            "Working capital is INR 7000000.",
+            "balance_sheet.working_capital.v1",
+        ),
+        (
+            "balance_sheet",
+            "business",
+            "b",
+            "Working capital is USD 400000000.",
+            "balance_sheet.working_capital.v1",
+        ),
+    ],
+)
+def test_uploaded_document_feeds_owned_summary(
+    api_database_client, monkeypatch, kind, user_type, layout, summary_text, calculation
+):
+    client, _ = api_database_client
+    calls = []
+
+    class MockProvider:
+        is_configured = True
+
+        async def generate(self, *, messages, temperature):
+            calls.append(messages)
+            return SimpleNamespace(content=summary_text)
+
+    async def unexpected_chat(*args):
+        pytest.fail("A foreign workspace reached the chat engine.")
+
+    monkeypatch.setattr("app.ai.summary.GroqProvider", MockProvider)
+    monkeypatch.setattr("app.api.routes.ai.chat_with_workspace", unexpected_chat)
+    uploaded = statement_upload(
+        client,
+        layout_bytes(layout, "csv", document_type=kind),
+        user_type=user_type,
+        document_type=kind,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    workspace_id = uploaded.json()["workspace"]["id"]
+    document_id = uploaded.json()["document"]["id"]
+    url = f"/api/workspaces/{workspace_id}"
+    other_headers = {"Authorization": "Bearer token-b"}
+    foreign_summary = client.post(f"{url}/summary", headers=other_headers)
+    foreign_chat = client.post(
+        f"{url}/chat", headers=other_headers, json={"message": "How did I do?"}
+    )
+    assert foreign_summary.status_code == foreign_chat.status_code == 404
+    assert foreign_summary.json()["detail"]["code"] == "workspace_not_found"
+    assert calls == []
+
+    owned = client.post(
+        f"{url}/summary", headers={"Authorization": "Bearer token-a"}, json={}
+    )
+    assert owned.status_code == 200, owned.text
+    result = owned.json()
+    assert result["text"] == summary_text
+    assert result["disclaimer"] == "This is not financial advice."
+    assert calculation in result["calculation_ids"]
+    assert {source["document_id"] for source in result["source_refs"]} == {document_id}
+    assert all(source["source_rows"] for source in result["source_refs"])
+    (messages,) = calls
+    assert document_id not in messages[1]["content"]
+    assert "Synthetic" not in messages[1]["content"]
+
+
+@pytest.mark.parametrize(
+    "kind,old,new,expected,metric_key",
+    [
+        (
+            "bank_statement",
+            b"Currency: INR,",
+            b"",
+            "insufficient_data",
+            "net_cash_flow",
+        ),
+        (
+            "bank_statement",
+            b"Closing Balance: 12500",
+            b"Closing Balance: 12900",
+            "unreliable",
+            "net_cash_flow",
+        ),
+        (
+            "balance_sheet",
+            b"Currency: INR,Scale: Lakhs",
+            b"",
+            "insufficient_data",
+            "working_capital",
+        ),
+        (
+            "balance_sheet",
+            b"Total Equity,180",
+            b"Total Equity,179",
+            "unreliable",
+            "working_capital",
+        ),
+        (
+            "balance_sheet",
+            b"Receivables,50",
+            b"Receivables,50\nUnknown asset,10",
+            "insufficient_data",
+            "working_capital",
+        ),
+    ],
+)
+def test_uploaded_document_with_input_gaps_blocks_summary(
+    api_database_client, monkeypatch, kind, old, new, expected, metric_key
+):
+    client, server = api_database_client
+
+    async def unexpected_summary(*args):
+        pytest.fail("An incomplete or unreliable document reached summary generation.")
+
+    monkeypatch.setattr("app.api.routes.ai.generate_summary", unexpected_summary)
+    content = layout_bytes("a", "csv", document_type=kind)
+    assert old in content
+    content = content.replace(old, new, 1)
+    upload = statement_upload(
+        client,
+        content,
+        user_type="business" if kind == "balance_sheet" else "personal",
+        document_type=kind,
+    )
+    assert upload.status_code == 201, upload.text
+    saved = upload.json()
+    url = f"/api/workspaces/{saved['workspace']['id']}"
+    headers = {"Authorization": "Bearer token-a"}
+
+    analysis = client.get(f"{url}/analysis", headers=headers)
+    assert analysis.status_code == 200, analysis.text
+    result = json.loads(analysis.content, parse_float=Decimal)
+    assert result["workspace_id"] == saved["workspace"]["id"]
+    assert result["document_type"] == kind
+    assert result["reliability"] == expected
+    assert result["warnings"]
+    metric = next(metric for metric in result["metrics"] if metric["key"] == metric_key)
+    if expected == "insufficient_data":
+        assert metric["status"] == "unavailable"
+        assert metric["value"] is None and metric["reason"]
+    else:
+        assert metric["status"] == "available"
+        assert metric["source_refs"][0]["document_id"] == saved["document"]["id"]
+        assert metric["value"] == (2500 if kind == "bank_statement" else 7_000_000)
+    if old.startswith(b"Currency:"):
+        details = client.get(url, headers=headers)
+        assert details.status_code == 200
+        assert details.json()["documents"][0]["currency"] is None
+
+    summary = client.post(f"{url}/summary", headers=headers, json={})
+    assert summary.status_code == 409
+    assert summary.json()["detail"]["code"] == "analysis_not_ready"
+    assert list(server.files.values()) == [content]
+
+
+def test_balance_reference_rows_preserve_current_metrics(api_database_client):
+    client, server = api_database_client
+    content = (
+        layout_bytes("a", "csv", document_type="balance_sheet")
+        .replace(
+            b"Receivables,50", b"Receivables,50\nTotal Current Assets,150\nUnaudited,"
+        )
+        .replace(b"Total Assets,300", b"Total Assets,300\nTotal Assets,300")
+    )
+    uploaded = statement_upload(
+        client, content, user_type="business", document_type="balance_sheet"
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    saved = uploaded.json()
+    documents = server.query(
+        "select parsed_json->'unmapped' as unmapped from public.documents where id=$1::uuid",
+        [saved["document"]["id"]],
+        OWNER,
+    )["rows"]
+    assert {item["reason"] for item in documents[0]["unmapped"]} == {
+        "reported_subtotal",
+        "unrecognized_note",
+        "repeated_reported_value",
+    }
+    analysis = client.get(
+        f"/api/workspaces/{saved['workspace']['id']}/analysis",
+        headers={"Authorization": "Bearer token-a"},
+    )
+    assert analysis.status_code == 200, analysis.text
+    result = json.loads(analysis.content, parse_float=Decimal)
+    assert result["reliability"] == "valid"
+    metrics = {metric["key"]: metric["value"] for metric in result["metrics"]}
+    assert metrics["working_capital"] == 7_000_000
+    assert metrics["current_ratio"] == Decimal("1.875")

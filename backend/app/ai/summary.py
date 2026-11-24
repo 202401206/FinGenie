@@ -21,11 +21,16 @@ async def generate_summary(
 ) -> SummaryResponse:
     """Calculates key financial metrics and synthesizes a validated natural language summary."""
     if "transactions" in workspace_data:
-        return await _generate_bank_summary(workspace_data, provider)
-    if "assets" in workspace_data:
-        return await _generate_balance_sheet_summary(workspace_data, provider)
-
-    raise ValueError("Unsupported or unrecognized workspace data format for summary.")
+        generate = _generate_bank_summary
+    elif "assets" in workspace_data:
+        generate = _generate_balance_sheet_summary
+    else:
+        raise ValueError(
+            "Unsupported or unrecognized workspace data format for summary."
+        )
+    if not workspace_data.get("currency"):
+        raise ValueError("Summary requires a confirmed currency.")
+    return await generate(workspace_data, provider)
 
 
 async def _generate_bank_summary(
@@ -42,7 +47,7 @@ async def _generate_bank_summary(
     calculation_ids = [res.calculation_id for res in tool_results]
     source_refs = merge_source_refs(tool_results)
 
-    currency = data.get("currency", "INR")
+    currency = data["currency"]
     credit_val = credit_res.value
     debit_val = debit_res.value
     net_val = net_res.value
@@ -108,7 +113,7 @@ async def _generate_balance_sheet_summary(
     calculation_ids = [res.calculation_id for res in tool_results]
     source_refs = merge_source_refs(tool_results)
 
-    currency = data.get("currency", "INR")
+    currency = data["currency"]
 
     # If the balance sheet does not reconcile (Assets != Liabilities + Equity), flag unreliable!
     if recon_res.status == "unavailable" or (recon_res.value or 0) != 0:
