@@ -47,11 +47,17 @@ export async function signUpWithPassword({ email, password, fullName }) {
     throw new Error("Please enter an email address and password.");
   }
 
+  const fallbackRedirect =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/auth/callback`
+      : undefined;
+
   const { data, error } = await client.auth.signUp({
     email: trimmedEmail,
     password,
     options: {
       data: trimmedName ? { full_name: trimmedName } : {},
+      emailRedirectTo: fallbackRedirect,
     },
   });
 
@@ -60,18 +66,70 @@ export async function signUpWithPassword({ email, password, fullName }) {
 }
 
 /**
- * Sign out of the active Supabase session.
+ * Resend signup confirmation email.
+ */
+export async function resendConfirmationEmail({ email, redirectTo }) {
+  const trimmedEmail = (email || "").trim();
+
+  if (!trimmedEmail) {
+    throw new Error("Please enter your email address to resend confirmation.");
+  }
+
+  const client = ensureSupabase();
+
+  const fallbackRedirect =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/auth/callback`
+      : undefined;
+
+  const { data, error } = await client.auth.resend({
+    type: "signup",
+    email: trimmedEmail,
+    options: {
+      emailRedirectTo: redirectTo || fallbackRedirect,
+    },
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Sign out of the Supabase session.
+ * Always ensures the local persistent session is cleared, even if remote revocation fails.
+ * Returns a structured result distinguishing local cleanup from remote revocation.
  */
 export async function signOutClient() {
-  if (!supabase) return;
+  if (!supabase) {
+    return { success: true, remoteRevoked: true, error: null };
+  }
+
+  let remoteRevoked = true;
+  let remoteError = null;
+
   try {
-    const { error } = await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({ scope: "global" });
     if (error) {
-      console.warn("Supabase remote sign-out returned error:", error.message);
+      remoteRevoked = false;
+      remoteError = error.message;
+      // Guarantee local session is purged even when remote revocation errors
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
     }
   } catch (err) {
-    console.warn("Supabase sign-out threw exception:", err);
+    remoteRevoked = false;
+    remoteError = err?.message || "Remote sign-out request failed";
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // Ignore local fallback error
+    }
   }
+
+  return {
+    success: true,
+    remoteRevoked,
+    error: remoteError,
+  };
 }
 
 /**
