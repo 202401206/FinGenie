@@ -1,0 +1,38 @@
+{
+  "workspace_id": "20000000-0000-4000-8000-000000000003",
+  "document_type": "bank_statement",
+  "currency": "INR",
+  "reliability": "unreliable",
+  "metrics": [
+    {
+      "key": "total_credit",
+      "value": 50000,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "bank.total_credit.v1",
+      "source_refs": []
+    },
+    {
+      "key": "total_debit",
+      "value": 62000,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "bank.total_debit.v1",
+      "source_refs": []
+    },
+    {
+      "key": "net_cash_flow",
+      "value": -12000,
+      "unit": "INR",
+      "status": "available",
+      "reason": null,
+      "calculation_id": "bank.net_cash_flow.v1",
+      "source_refs": []
+    }
+  ],
+  "warnings": [
+    "Reconciliation variance detected: Opening balance + Net cash flow does not match reported closing balance."
+  ]
+}
