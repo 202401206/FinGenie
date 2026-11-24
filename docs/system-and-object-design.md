@@ -263,7 +263,7 @@ sequenceDiagram
 
     %% Deterministic Analysis
     Note over User, Analysis: Phase 2: Deterministic Financial Analysis
-    User->>API: GET /api/workspaces/{id}/analysis (Planned Contract Target / Dashboard)
+    User->>API: GET /api/workspaces/{id}/analysis (Registered REST Route: app.api.routes.workspaces)
     API->>DB: Fetch workspace parsed_json / transactions
     DB-->>API: statement_data dict
     API->>Analysis: analyze_bank_statement(statement_data)
@@ -299,7 +299,7 @@ sequenceDiagram
     API-->>User: 200 OK (ChatResponse JSON)
 ```
 
-> **API Registration Status Note:** `GET /api/workspaces/{id}/analysis` is formally defined in [`contracts/api/README.md`](../contracts/api/README.md) as the planned Sprint 2 contract route for retrieving financial analysis envelopes. In the current live FastAPI application (`backend/app/api/routes/workspaces.py`), workspace detail and transaction listing routes are live, while the dedicated `/analysis` route is scheduled for registration. In the interim, deterministic analysis calculations are fully active and invoked internally by the AI tool router (`backend/app/ai/tools.py`) and verified via automated test runners.
+> **API Registration Status Note:** `GET /api/workspaces/{id}/analysis` is formally registered on `origin/main` in [`backend/app/api/routes/workspaces.py`](../backend/app/api/routes/workspaces.py). It is backed by [`backend/app/services/workspace_analysis.py`](../backend/app/services/workspace_analysis.py) (`build_workspace_analysis()`), which retrieves the parsed statement context via `read_owned_document()`, invokes `analyze_bank_statement()`, validates the envelope with [`backend/app/schemas/analysis_responses.py`](../backend/app/schemas/analysis_responses.py) (`WorkspaceAnalysisResponse`), and returns JSON with exact numeric decimal serialization via `to_wire_json()`. The endpoint is covered by comprehensive integration tests in [`backend/tests/api/test_workspace_analysis.py`](../backend/tests/api/test_workspace_analysis.py).
 
 ---
 
