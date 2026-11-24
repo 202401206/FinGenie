@@ -266,19 +266,17 @@ sequenceDiagram
     User->>API: GET /api/workspaces/{id}/analysis (Registered REST Route: app.api.routes.workspaces)
     API->>DB: Fetch workspace parsed_json / transactions
     DB-->>API: statement_data dict
-    API->>Analysis: analyze_bank_statement(statement_data)
+    API->>Analysis: analyze_bank_statement(statement_data, include_balance_metrics=False)
 
     activate Analysis
     Analysis->>Analysis: calculate_total_credit(statement_data)
     Analysis->>Analysis: calculate_total_debit(statement_data)
     Analysis->>Analysis: calculate_net_cash_flow(total_credit, total_debit)
-    Analysis->>Analysis: calculate_opening_balance(statement_data)
-    Analysis->>Analysis: calculate_closing_balance(statement_data)
-    Analysis->>Analysis: calculate_balance_reconciliation(opening, closing, credit, debit)
+    Analysis->>Analysis: calculate_balance_reconciliation() (Internal reliability check)
     Analysis->>Analysis: Assess reliability ('valid' | 'unreliable' | 'insufficient_data')
-    Analysis-->>API: Financial Analysis Envelope JSON
+    Analysis-->>API: Financial Analysis Envelope JSON (3 REST metrics: credit, debit, net)
     deactivate Analysis
-    API-->>User: 200 OK (Envelope: metrics, reliability, warnings)
+    API-->>User: 200 OK (WorkspaceAnalysisResponse: 3 metrics, reliability, warnings)
 
     %% Conversational AI & Number Guard
     Note over User, Guard: Phase 3: Conversational Inquiry with Safety Guard
@@ -295,11 +293,11 @@ sequenceDiagram
     Guard->>Guard: Assert numbers match executed tool values exactly
     Guard-->>AI: VerificationResult(valid=True, issues=())
     deactivate Guard
-    AI-->>API: ChatResponse(message, sources, tool_results)
-    API-->>User: 200 OK (ChatResponse JSON)
+    AI-->>API: ChatResponse(text, calculation_ids, source_refs, disclaimer)
+    API-->>User: 200 OK (ChatResponse JSON: text, calculation_ids, source_refs, disclaimer)
 ```
 
-> **API Registration Status Note:** `GET /api/workspaces/{id}/analysis` is formally registered on `origin/main` in [`backend/app/api/routes/workspaces.py`](../backend/app/api/routes/workspaces.py). It is backed by [`backend/app/services/workspace_analysis.py`](../backend/app/services/workspace_analysis.py) (`build_workspace_analysis()`), which retrieves the parsed statement context via `read_owned_document()`, invokes `analyze_bank_statement()`, validates the envelope with [`backend/app/schemas/analysis_responses.py`](../backend/app/schemas/analysis_responses.py) (`WorkspaceAnalysisResponse`), and returns JSON with exact numeric decimal serialization via `to_wire_json()`. The endpoint is covered by comprehensive integration tests in [`backend/tests/api/test_workspace_analysis.py`](../backend/tests/api/test_workspace_analysis.py).
+> **API Registration Status Note:** `GET /api/workspaces/{id}/analysis` is formally registered on `origin/main` in [`backend/app/api/routes/workspaces.py`](../backend/app/api/routes/workspaces.py). It is backed by [`backend/app/services/workspace_analysis.py`](../backend/app/services/workspace_analysis.py) (`build_workspace_analysis()`), which retrieves the parsed statement context via `read_owned_document()`, invokes `analyze_bank_statement(..., include_balance_metrics=False)`, validates the envelope with [`backend/app/schemas/analysis_responses.py`](../backend/app/schemas/analysis_responses.py) (`WorkspaceAnalysisResponse`), and returns JSON with exact numeric decimal serialization via `to_wire_json()`. In the live REST response for bank statements, three primary flow metrics are exposed (`total_credit`, `total_debit`, `net_cash_flow`), while opening balance, closing balance, and balance reconciliation difference remain calculation-layer operations (with reconciliation internally determining document reliability). The endpoint is covered by comprehensive integration tests in [`backend/tests/api/test_workspace_analysis.py`](../backend/tests/api/test_workspace_analysis.py).
 
 ---
 
@@ -515,6 +513,7 @@ WARNING_MISSING_CURRENCY = "Missing statement currency; monetary units unconfirm
      - Uses `source_locations.closing_balance.source_row` for traceability.
 
 7. **`calculate_balance_reconciliation(statement_data, total_credit_metric=None, total_debit_metric=None) -> dict[str, Any]`**
+   - **Calculation ID:** `bank.balance_reconciliation.v1`
    - **Verification Formula:**
      $$\text{Expected Closing} = \text{Opening Balance} + \text{Total Credit} - \text{Total Debit}$$
      $$\text{Discrepancy Difference} = \text{Expected Closing} - \text{Closing Balance}$$
@@ -525,6 +524,9 @@ WARNING_MISSING_CURRENCY = "Missing statement currency; monetary units unconfirm
 
 8. **`analyze_bank_statement(statement_data, workspace_id=None, *, include_reconciliation_metric=False, include_balance_metrics=False) -> dict[str, Any]`**
    - **Responsibility:** Produces the standard top-level Financial Analysis Envelope matching [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json).
+   - **REST vs. Calculation-Layer Metric Scope:**
+     - By default (`include_balance_metrics=False`, `include_reconciliation_metric=False`), produces exactly three primary flow metrics: `total_credit`, `total_debit`, and `net_cash_flow`. This strictly defines the three-metric response emitted by the live `GET /api/workspaces/{id}/analysis` endpoint.
+     - Opening balance (`bank.opening_balance.v1`), closing balance (`bank.closing_balance.v1`), and reconciliation difference (`bank.balance_reconciliation.v1`) are calculation-layer metrics available via standalone functions or when optional boolean parameters are enabled (e.g. for AI summarization context).
    - **Reliability Policy:**
      - Always evaluates balance reconciliation internally, even when `include_reconciliation_metric=False`.
      - `reliability = "insufficient_data"` if currency is missing or if any required inputs are unavailable/malformed.
