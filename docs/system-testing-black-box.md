@@ -95,7 +95,7 @@ Equivalence partitioning divides the input domain into classes of valid and inva
 
 | Partition ID | Input Dimension | Equivalence Class Description | Type | Expected Observable Outcome |
 | :--- | :--- | :--- | :---: | :--- |
-| **EP-AMT-V1** | Transaction Amount | Plain integer or decimal numeric values (e.g., `500`, `1250.75`, `0.001`) | Valid | Successfully parsed to exact numeric `Decimal`; metric available. Sub-cent/sub-paisa fractions ($\ge 3$ decimals) are accepted by calculation helper and transaction schema. |
+| **EP-AMT-V1** | Transaction Amount | Plain integer or decimal numeric values (e.g., `500`, `1250.75`, `0.001`) | Valid | Successfully parsed to exact numeric `Decimal`; metric available. Sub-cent/sub-paisa fractions (such as `0.001`) are accepted by calculation helper and transaction schema (neither imposes a 2-decimal limit). |
 | **EP-AMT-V2** | Transaction Amount | International 3-digit comma grouping (e.g., `"1,500.00"`, `"1,000,000.00"`) | Valid | Successfully parsed to exact numeric value; commas stripped cleanly. |
 | **EP-AMT-V3** | Transaction Amount | Indian 2-digit comma grouping (e.g., `"1,50,000.00"`, `"10,00,000.50"`, `"1,00,00,000"`) | Valid | Successfully parsed to exact numeric value conforming to Indian Lakhs/Crores. |
 | **EP-AMT-V4** | Transaction Amount | Zero numeric value (`0`, `0.00`, `"0.00"`) | Valid | Accepted as zero movement; excluded from contributing `source_rows` and `field_paths`. |
@@ -109,7 +109,7 @@ Equivalence partitioning divides the input domain into classes of valid and inva
 | **EP-CUR-V1** | Currency | Valid non-empty 3-letter currency code (e.g., `"INR"`, `"USD"`, `"EUR"`) | Valid | Units confirmed; metrics marked `status: "available"` with matching `unit`. |
 | **EP-CUR-I1** | Currency | Missing currency (`null` or omitted key) | Invalid | All monetary metrics `unavailable` with `unit: null`; `reliability: "insufficient_data"`; warning: `"Missing statement currency; monetary units unconfirmed."`. |
 | **EP-CUR-I2** | Currency | Blank or whitespace string (`""`, `"   "`) | Invalid | Evaluated as unconfirmed currency; `reliability: "insufficient_data"`. |
-| **EP-CUR-I3** | Currency | Malformed non-empty currency code (e.g., `"US Dollar"`, `"123"`, `"IN"`, `"USDT"`) | Invalid | Rejected at schema-validation layer with `pydantic.ValidationError` (`validate_currency` requires 3-letter uppercase ISO code); yields HTTP 422 (`invalid_upload_fields`) at the API boundary before reaching analysis. |
+| **EP-CUR-I3** | Currency | Malformed non-empty currency string (e.g., `"US Dollar"`, `"123"`, `"IN"`, `"USDT"`) | Invalid | Rejected at schema-validation layer by `BankStatement.validate_currency` (`pydantic.ValidationError`: requires 3-letter uppercase ISO code). Ingestion halts before reaching downstream analysis engine. (Differs from missing currency, which is schema-valid and handled downstream with `reliability: "insufficient_data"`). |
 | **EP-TXN-V1** | Transactions Array | Non-empty array of valid transaction dictionaries | Valid | Normal multi-transaction summation and trace generation. |
 | **EP-TXN-V2** | Transactions Array | Empty array (`[]`) with matching balances ($O = C$) | Valid | Zero activity analysis: `credit=0`, `debit=0`, `net=0`, `reliability: "valid"`, `warnings: []`. |
 | **EP-TXN-I1** | Transactions Array | Empty array (`[]`) with mismatching balances ($O \ne C$) | Invalid | Reconciliation discrepancy detected; `reliability: "unreliable"`. |
@@ -129,7 +129,7 @@ Boundary value analysis focuses on testing the extremes and edges of input parti
 | Boundary ID | Target Parameter | Boundary Value | Justification & Edge Condition | Expected Observable Result |
 | :--- | :--- | :--- | :--- | :--- |
 | **BVA-AMT-01** | Credit / Debit | `0.00` | Zero monetary movement boundary. | Accepted as valid zero; excluded from contributing source rows. |
-| **BVA-AMT-02** | Credit / Debit | `0.001` | Smallest strictly positive sub-cent/sub-paisa quantum ($> 0.00$). Neither the transaction schema (`BankTransaction` with `ge=0`) nor `_to_decimal()` restricts inputs to 2 decimal places. | Included in summation ($> 0$ threshold met); added to `source_rows` and `field_paths`. |
+| **BVA-AMT-02** | Credit / Debit | `0.001` | Example sub-paisa positive fractional value ($> 0.00$). Neither the transaction schema (`BankTransaction` with `ge=0`) nor `_to_decimal()` restricts inputs to 2 decimal places (not a universal minimum bound). | Included in summation ($> 0$ threshold met); added to `source_rows` and `field_paths`. |
 | **BVA-AMT-03** | Credit / Debit | `0.01` | Conventional 2-decimal currency display resolution (1 cent / 1 paisa). Standard monetary currency display boundary. | Included in summation; added to `source_rows` and `field_paths`. |
 | **BVA-AMT-04** | Credit / Debit | `-0.001` / `-0.01` | Smallest negative value (polarity boundary $< 0.00$). | Rejected: `credit`/`debit` magnitudes must be $\ge 0$. Metric `unavailable`. |
 | **BVA-AMT-05** | Balance | `0.00` | Zero balance boundary. | Accepted as valid zero opening/closing balance. |
@@ -154,13 +154,18 @@ Boundary value analysis focuses on testing the extremes and edges of input parti
 > **Precision Layer Architecture Note (Helper Precision vs. Schema Restrictions):**
 > 1. **Calculation Helper (`_to_decimal`):** Employs arbitrary-precision Python `Decimal` arithmetic. It parses plain decimals (including fractional sub-cent amounts like `0.001` or high-precision values like `123456789012345.6789012345`) and grouped strings without enforcing a two-decimal-place limit. It defensively rejects booleans (`True`/`False`), non-finite values (`NaN`, `Infinity`), and malformed comma grouping.
 > 2. **Transaction Schema (`BankTransaction`):** Imposes schema validation requiring `ge=0` (non-negative) and `allow_inf_nan=False` on `credit` and `debit` fields, but does not enforce a minimum positive quantum of `0.01` or round to two decimal places. Sub-cent values (`0.001`) are schema-valid.
-> 3. **Currency & Wire Formatting:** While `0.01` represents the conventional display boundary for cents/paise in user-facing UI and reporting, `0.001` is accepted by both the parser schema and calculation engine.
+> 3. **Currency & Wire Formatting:** While `0.01` represents the conventional display boundary for cents/paise in user-facing UI and reporting, sub-paisa amounts like `0.001` are examples of accepted positive fractional precision, not a universal minimum accepted limit.
 
 ---
 
 ## 5. Acceptance Test Cases for Bank Statement Calculations
 
-The following structured test cases specify the complete acceptance requirements for the bank statement analytics engine.
+The following structured test cases specify the complete acceptance requirements for the bank statement analytics engine and REST delivery interface.
+
+> **Metric Scope Distinction (REST Response vs. Calculation Layer):**
+> - **REST Response Metric Scope (`GET /api/workspaces/{id}/analysis`):** The live FastAPI analysis route for bank statements exposes exactly three primary flow metrics: `total_credit`, `total_debit`, and `net_cash_flow` (Suite A).
+> - **Calculation-Layer Metric Scope:** Balance-related metrics (`opening_balance`, `closing_balance`, and `balance_reconciliation` difference in Suite B) are calculation-layer operations verified via standalone calculation functions or when optional flags (`include_balance_metrics=True`, `include_reconciliation_metric=True`) are enabled.
+> - **Reliability Policy:** In all cases, balance reconciliation is evaluated internally during statement analysis to establish overall document `reliability` (`valid`, `unreliable`, or `insufficient_data`) and populate warnings, even though reconciliation is not a separate entry in the REST `metrics` array.
 
 ### 5.1 Suite A: Credits, Debits, and Net Cash Flow
 
@@ -175,7 +180,9 @@ The following structured test cases specify the complete acceptance requirements
 
 ---
 
-### 5.2 Suite B: Opening & Closing Balances and Reconciliation
+### 5.2 Suite B (Calculation Layer): Opening & Closing Balances and Reconciliation
+
+> **Calculation-Layer Scope Note:** The metrics in Suite B (`opening_balance`, `closing_balance`, and `balance_reconciliation` difference) are calculation-layer metrics available via standalone module functions (`calculate_opening_balance`, `calculate_closing_balance`, `calculate_balance_reconciliation`) or when `include_balance_metrics=True` / `include_reconciliation_metric=True`. The live REST `/api/workspaces/{id}/analysis` endpoint exposes only the three primary flow metrics (`total_credit`, `total_debit`, `net_cash_flow`). However, reconciliation is evaluated in all cases to determine overall statement `reliability` (`valid` / `unreliable` / `insufficient_data`) and populate warnings.
 
 | Test Case ID | Scenario / Feature | Observable Input / Condition | Expected Observable Result | Acceptance Criterion |
 | :--- | :--- | :--- | :--- | :--- |
@@ -183,7 +190,7 @@ The following structured test cases specify the complete acceptance requirements
 | **TC-BB-BNK-008** | Closing Balance Extraction | `closing_balance: "12,500.00"`, `currency: "INR"`, `source_locations: { closing_balance: { source_row: 9 } }`. | `status: "available"`<br>`value: 12500.00`<br>`unit: "INR"`<br>`calculation_id: "bank.closing_balance.v1"`<br>`source_refs: [ { source_rows: [9], field_paths: ["closing_balance"] } ]` | Parses monetary string; retrieves source row from `source_locations.closing_balance`. |
 | **TC-BB-BNK-009** | Negative Overdraft Balance | `opening_balance: "-1,500.00"`, `closing_balance: "-500.00"`. Currency: `"USD"`. | `opening_balance.value: -1500.00`<br>`closing_balance.value: -500.00`<br>`status: "available"` | Validates that account balances can be negative (overdraft accounts) unlike transaction magnitudes. |
 | **TC-BB-BNK-010** | Perfect Balance Reconciliation | `opening_balance = 10000.00`, `total_credit = 5000.00`, `total_debit = 2500.00`, `closing_balance = 12500.00`. | `status: "available"`<br>`value: 0.00`<br>`reason: null`<br>`calculation_id: "bank.balance_reconciliation.v1"`<br>Overall `reliability: "valid"` | Equation $10000 + 5000 - 2500 = 12500$ balances exactly; difference is 0; reliability is valid. |
-| **TC-BB-BNK-011** | Reconciliation Mismatch Detection | `opening_balance = 10000.00`, `total_credit = 5000.00`, `total_debit = 2500.00`, `closing_balance = 13000.00`. | `status: "available"`<br>`value: -500.00`<br>`reason` details mismatch (difference -500.00)<br>Overall `reliability: "unreliable"` | Discrepancy detected; document marked `unreliable`; warning generated detailing equation. |
+| **TC-BB-BNK-011** | Reconciliation Mismatch Detection | `opening_balance = 10000.00`, `total_credit = 5000.00`, `total_debit = 2500.00`, `closing_balance = 13000.00`. | `status: "available"`<br>`value: -500.00`<br>`reason` details mismatch (difference -500.00)<br>`calculation_id: "bank.balance_reconciliation.v1"`<br>Overall `reliability: "unreliable"` | Discrepancy detected; document marked `unreliable`; warning generated detailing equation. |
 | **TC-BB-BNK-012** | Reconciliation with Excluded Metric | Same as TC-BB-BNK-011, but called with `include_reconciliation_metric: false`. | `metrics` array contains only 3 primary KPIs (`total_credit`, `total_debit`, `net_cash_flow`).<br>Overall `reliability: "unreliable"`. | Reconciliation is evaluated for overall document reliability even when not requested in the `metrics` list. |
 
 ---
@@ -235,39 +242,65 @@ The following structured test cases specify the complete acceptance requirements
 | **TC-BB-BNK-032** | Source Locations Missing on Statement | Statement has no `source_locations` key. Opening balance and closing balance are valid. | `status: "available"`<br>`opening_balance.source_refs: [ { source_rows: [], field_paths: ["opening_balance"] } ]` | Gracefully handles absent `source_locations`; returns empty `source_rows` without error. |
 | **TC-BB-BNK-033** | Malformed Source Locations Structure | `source_locations` is a string `"invalid"` or integer `123`. | `status: "unavailable"`<br>`reason` indicates `source_locations` must be a dictionary. | Rejects invalid container type for `source_locations`. |
 | **TC-BB-BNK-034** | Contract Fixture Exact Equivalence | Complete [`contracts/examples/bank-statement.json`](../contracts/examples/bank-statement.json) input with workspace ID `"20000000-0000-4000-8000-000000000001"`. | Exact dictionary equivalence with [`contracts/examples/financial-analysis.json`](../contracts/examples/financial-analysis.json). | Guarantees complete fidelity to the agreed team interface contract. |
-| **TC-BB-BNK-035** | REST `/analysis` Wire Response Precision | High-precision monetary transaction (e.g., `123456789012345.6789012345`) queried via `GET /api/workspaces/{id}/analysis`. Response parsed via Python `json.loads(response.content, parse_float=Decimal)`. | Exact Decimal equality: `metric["value"] == Decimal("123456789012345.6789012345")`. Integers serialized without decimals (e.g., `5000`); fractional numbers preserve all significant places without IEEE 754 float truncation. | Guarantees exact financial precision over HTTP wire delivery without losing paise/cents. |
+| **TC-BB-BNK-035** | REST `/analysis` Wire Response Precision | Dedicated test statement containing large 25-digit fractional credit (`123456789012345.6789012345`) queried via `GET /api/workspaces/{id}/analysis`. Response parsed via Python `json.loads(response.content, parse_float=Decimal)`. | Exact Decimal equality: `metric["value"] == Decimal("123456789012345.6789012345")`. Integers serialized without decimals (e.g., `5000`); fractional numbers preserve all significant places without IEEE 754 float truncation. | Guarantees exact financial precision over HTTP wire delivery without losing paise/cents. |
 
 #### Detailed Specification for TC-BB-BNK-035: REST Serialization Precision Verification
 
 - **Target Endpoint:** `GET /api/workspaces/{id}/analysis`
 - **Existing Test Reference:** [`backend/tests/api/test_workspace_analysis.py`](../backend/tests/api/test_workspace_analysis.py) (`test_bank_analysis_keeps_real_ids_and_exact_json_values`).
+- **Reproducible Test Input (Proposed Fixture Edit / Dedicated Test Copy):**
+  - **Standard Repository Fixture State:** The standard repository fixture [`backend/tests/parsers/fixtures/synthetic_bank_statement.csv`](../backend/tests/parsers/fixtures/synthetic_bank_statement.csv) contains standard integer values (`credit: 5000` at line 6) and does not contain large high-precision fractional amounts.
+  - **Proposed Fixture Edit:** To reproduce this precision test without modifying the checked-in repository fixture, construct a separate test copy (e.g. `precision_test_statement.csv`) with the following precise edit on Line 6:
+    ```csv
+    Bank: Synthetic Demo Bank
+    Account Holder: Synthetic Person,Account Type: savings
+    Currency: INR,Period: 2026-01-01 to 2026-01-31
+    Opening Balance: 10000
+    Date,Description,Debit,Credit,Balance
+    2026-01-05,Synthetic salary,0,123456789012345.6789012345,123456789022345.6789012345
+    2026-01-10,Synthetic rent,2000,0,123456789020345.6789012345
+    2026-01-15,Synthetic groceries,500,0,123456789019845.6789012345
+    Closing Balance: 123456789019845.6789012345
+    Unrecognized export note,Synthetic note only
+    ```
+  - **Exact Large Decimal Amount:** `Decimal("123456789012345.6789012345")` (25 significant digits: 15 integral digits and 10 fractional digits, matching `test_bank_analysis_keeps_real_ids_and_exact_json_values`).
+  - **Closing Balance Adjustment:** Line 9 is set to `123456789019845.6789012345` to maintain exact mathematical balance reconciliation ($10000 + 123456789012345.6789012345 - 2500 = 123456789019845.6789012345$), preserving `reliability: "valid"` with zero discrepancy.
+  - **Sub-Paisa Precision Note:** While `0.001` serves as a standard example of a sub-paisa fractional value accepted by the system, neither the calculation engine (`_to_decimal()`) nor the transaction schema (`BankTransaction`) imposes a 2-decimal limit or a universal minimum positive bound. Values with arbitrary fractional precision (such as 10 decimal places in `123456789012345.6789012345`) are accepted and computed exactly.
+- **Upload and Safe Execution Flow:**
+  1. Upload the test statement via `POST /api/upload` with Bearer authentication.
+  2. Guard: Assert HTTP response status is `201 Created`.
+  3. Guard: Parse the JSON response and verify that `workspace.id` exists and is a valid nonempty UUID string (preventing unintended requests to `/workspaces/null/analysis`).
+  4. Query `GET /api/workspaces/{WORKSPACE_ID}/analysis` with `Authorization: Bearer $ACCESS_TOKEN`.
 - **Precision Hazard (Why Ordinary Float Parsing is Insufficient):**
   Standard IEEE 754 double-precision 64-bit binary floats provide only 53 bits of significand (mantissa), translating to approximately 15 to 17 decimal digits of precision. When monetary amounts contain large numbers with extended fractional paise/cents (such as `Decimal("123456789012345.6789012345")`, which has 25 significant digits), standard JSON decoders (such as default Python `json.loads(response.content)` without parameters, or browser `JSON.parse()`) convert JSON number literals into binary floats, discarding digits beyond the 17th significant figure and introducing rounding errors.
 - **Backend Wire Serialization:**
   In [`backend/app/schemas/analysis_responses.py`](../backend/app/schemas/analysis_responses.py), `WorkspaceAnalysisResponse.to_wire_json()` uses `simplejson.dumps(self.model_dump(mode="python"), use_decimal=True, allow_nan=False, default=str)`. This emits exact, unrounded decimal number tokens (not strings) onto the wire.
 - **Client Verification Protocol:**
-  To verify exact precision, black-box client test harnesses must decode the HTTP response body using Python's `parse_float=Decimal`:
+  Black-box client test harnesses must decode the HTTP response body using Python's `parse_float=Decimal` and assert exact equality against `Decimal`:
   ```python
   import json
   from decimal import Decimal
   import httpx
 
+  # 1. Fetch analysis response for the uploaded workspace
   response = httpx.get(
       f"http://localhost:8000/api/workspaces/{workspace_id}/analysis",
       headers={"Authorization": f"Bearer {access_token}"},
   )
   assert response.status_code == 200
 
-  # Decode numbers directly into Python Decimal to prevent binary float truncation
+  # 2. Decode numbers directly into Python Decimal to prevent binary float truncation
   payload = json.loads(response.content, parse_float=Decimal)
+
+  # 3. Locate primary REST metric total_credit
   metric = next(m for m in payload["metrics"] if m["key"] == "total_credit")
 
-  # Exact Decimal comparison against expected value
+  # 4. Assert exact Decimal equality against expected large value
   expected_amount = Decimal("123456789012345.6789012345")
-  assert metric["value"] == expected_amount
+  assert metric["value"] == expected_amount, f"Expected {expected_amount}, got {metric['value']}"
   ```
 - **Execution Status Note:**
-  While the automated API test `test_bank_analysis_keeps_real_ids_and_exact_json_values` passes in the internal repository test suite, this system acceptance case represents the black-box client verification standard and is marked **Pending Live Execution** until run against a live deployed server.
+  While the automated API test `test_bank_analysis_keeps_real_ids_and_exact_json_values` passes in the internal repository test suite, this system acceptance case represents the black-box client verification standard and is marked **Pending Live Execution** until run against a live deployed server. No repository fixture or test files were mutated.
 
 ---
 
@@ -338,16 +371,38 @@ export ACCESS_TOKEN="<supabase_bearer_jwt>"
 #### Step 2: Ingest Test Statement via Upload API (`POST /api/upload`)
 The intake endpoint [`backend/app/api/routes/upload.py`](../backend/app/api/routes/upload.py) accepts multipart form uploads for both CSV (`.csv`) and Excel (`.xlsx`) files (validated via `validate_file_metadata` in `backend/app/services/upload_validation.py`).
 
-Submit the standard repository fixture [`backend/tests/parsers/fixtures/synthetic_bank_statement.csv`](../backend/tests/parsers/fixtures/synthetic_bank_statement.csv) from the `backend/` directory:
+Submit the standard repository fixture [`backend/tests/parsers/fixtures/synthetic_bank_statement.csv`](../backend/tests/parsers/fixtures/synthetic_bank_statement.csv) from the `backend/` directory, implementing an explicit failure guard before proceeding:
 ```bash
 cd backend
 
-# Upload synthetic bank statement CSV fixture (CSV and XLSX are both supported)
-UPLOAD_RESPONSE=$(curl -s -S -X POST "http://localhost:8000/api/upload" \
+# Step 2a: Submit multipart upload and capture HTTP status code + response body
+UPLOAD_HTTP_RESPONSE=$(curl -s -S -w "\n%{http_code}" -X POST "http://localhost:8000/api/upload" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -F "user_type=personal" \
   -F "document_type=bank_statement" \
   -F "file=@tests/parsers/fixtures/synthetic_bank_statement.csv;type=text/csv")
+
+# Separate response body and HTTP status code
+UPLOAD_BODY=$(echo "$UPLOAD_HTTP_RESPONSE" | sed '$d')
+UPLOAD_STATUS=$(echo "$UPLOAD_HTTP_RESPONSE" | tail -n 1)
+
+# Step 2b: Failure guard - verify HTTP 201 Created
+if [ "$UPLOAD_STATUS" -ne 201 ]; then
+  echo "[-] ERROR: Upload failed with HTTP status $UPLOAD_STATUS" >&2
+  echo "[-] Response: $UPLOAD_BODY" >&2
+  exit 1
+fi
+
+# Step 2c: Failure guard - parse response and verify workspace.id exists and is nonempty
+WORKSPACE_ID=$(echo "$UPLOAD_BODY" | jq -r '.workspace.id // empty')
+
+if [ -z "$WORKSPACE_ID" ] || [ "$WORKSPACE_ID" = "null" ]; then
+  echo "[-] ERROR: Upload response missing or null workspace.id" >&2
+  echo "[-] Response: $UPLOAD_BODY" >&2
+  exit 1
+fi
+
+echo "[+] Upload verified successfully. Target Workspace ID: $WORKSPACE_ID"
 ```
 
 *Observable Response Structure (`UploadResponse`):*
@@ -366,23 +421,54 @@ UPLOAD_RESPONSE=$(curl -s -S -X POST "http://localhost:8000/api/upload" \
   }
 }
 ```
-*Observable Assertion:* Response status must be `201 Created`. Extract the generated `WORKSPACE_ID` directly from the `workspace.id` field:
-```bash
-# Extract WORKSPACE_ID from response
-WORKSPACE_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.workspace.id')
-echo "Target Workspace ID: $WORKSPACE_ID"
+
+*Python Example with Safe Upload Failure Guard:*
+```python
+from uuid import UUID
+import httpx
+
+# 1. Upload CSV fixture
+with open("tests/parsers/fixtures/synthetic_bank_statement.csv", "rb") as f:
+    upload_res = httpx.post(
+        "http://localhost:8000/api/upload",
+        headers={"Authorization": f"Bearer {access_token}"},
+        data={"user_type": "personal", "document_type": "bank_statement"},
+        files={"file": ("synthetic_bank_statement.csv", f, "text/csv")},
+    )
+
+# 2. Guard: Assert HTTP 201 Created
+if upload_res.status_code != 201:
+    raise RuntimeError(f"Upload failed: HTTP {upload_res.status_code} - {upload_res.text}")
+
+# 3. Guard: Parse upload response matching UploadResponse schema and verify workspace.id
+upload_data = upload_res.json()
+raw_workspace_id = upload_data.get("workspace", {}).get("id")
+if not raw_workspace_id or raw_workspace_id == "null":
+    raise ValueError(f"Upload response missing or invalid workspace.id: {upload_data}")
+
+try:
+    workspace_id = str(UUID(str(raw_workspace_id)))
+except (ValueError, TypeError) as exc:
+    raise ValueError(f"workspace.id is not a valid UUID: {raw_workspace_id}") from exc
+
+# 4. Safe call to GET /api/workspaces/{WORKSPACE_ID}/analysis only after validation passes
+analysis_res = httpx.get(
+    f"http://localhost:8000/api/workspaces/{workspace_id}/analysis",
+    headers={"Authorization": f"Bearer {access_token}"},
+)
+assert analysis_res.status_code == 200
 ```
 
 #### Step 3: Verify Observable Financial Analysis Envelope (`GET /api/workspaces/{id}/analysis`)
 
-Target the registered REST route [`backend/app/api/routes/workspaces.py`](../backend/app/api/routes/workspaces.py) using the extracted `WORKSPACE_ID`:
+Target the registered REST route [`backend/app/api/routes/workspaces.py`](../backend/app/api/routes/workspaces.py) using the validated `$WORKSPACE_ID`:
 ```bash
 curl -s -S -X GET "http://localhost:8000/api/workspaces/$WORKSPACE_ID/analysis" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
 > **Endpoint Registration Status:**
-> `GET /api/workspaces/{id}/analysis` is formally registered on `origin/main` in [`backend/app/api/routes/workspaces.py`](../backend/app/api/routes/workspaces.py). It is backed by [`backend/app/services/workspace_analysis.py`](../backend/app/services/workspace_analysis.py) (`build_workspace_analysis()`), which verifies document readiness, calls `analyze_bank_statement()`, validates the result against `WorkspaceAnalysisResponse`, and serializes the exact decimal numbers via `to_wire_json()`.
+> `GET /api/workspaces/{id}/analysis` is formally registered on `origin/main` in [`backend/app/api/routes/workspaces.py`](../backend/app/api/routes/workspaces.py). It is backed by [`backend/app/services/workspace_analysis.py`](../backend/app/services/workspace_analysis.py) (`build_workspace_analysis()`), which verifies document readiness, calls `analyze_bank_statement(..., include_balance_metrics=False)`, validates the result against `WorkspaceAnalysisResponse`, and serializes the exact decimal numbers via `to_wire_json()`.
 
 *What to Inspect in the Response:*
 1. **Top-Level Envelope Properties:**
@@ -391,59 +477,98 @@ curl -s -S -X GET "http://localhost:8000/api/workspaces/$WORKSPACE_ID/analysis" 
    - `currency`: Equals `"INR"`.
    - `reliability`: Equals `"valid"` (reconciliation discrepancy is zero, currency is confirmed, no parsing defects).
    - `warnings`: Empty array (`[]`).
-   - `metrics`: Array of metric objects.
-2. **Deterministic Metric Assertions & Exact Source Rows:**
-   For [`tests/parsers/fixtures/synthetic_bank_statement.csv`](../backend/tests/parsers/fixtures/synthetic_bank_statement.csv), verify each metric's `calculation_id`, `value`, `unit`, `status`, and exact 1-based `source_rows`:
+   - `metrics`: Array containing exactly **three primary flow metrics**.
+2. **Deterministic Primary REST Metric Assertions:**
+   For [`tests/parsers/fixtures/synthetic_bank_statement.csv`](../backend/tests/parsers/fixtures/synthetic_bank_statement.csv), verify each of the three exposed REST metrics:
 
    | Metric Key | Expected Value | Unit | Status | Expected Calculation ID | Exact Source Rows | Source Row Derivation in Fixture |
    | :--- | :---: | :---: | :---: | :--- | :---: | :--- |
-   | `opening_balance` | `10000` | `INR` | `available` | `bank.opening_balance.v1` | `[4]` | Line 4: `Opening Balance: 10000` |
    | `total_credit` | `5000` | `INR` | `available` | `bank.total_credit.v1` | `[6]` | Line 6: `2026-01-05,Synthetic salary,0,5000,15000` |
    | `total_debit` | `2500` | `INR` | `available` | `bank.total_debit.v1` | `[7, 8]` | Line 7: `Synthetic rent,2000,0` + Line 8: `Synthetic groceries,500,0` |
    | `net_cash_flow` | `2500` | `INR` | `available` | `bank.net_cash_flow.v1` | `[6, 7, 8]` | Union of credit (`[6]`) and debit (`[7, 8]`) source rows |
-   | `closing_balance` | `12500` | `INR` | `available` | `bank.closing_balance.v1` | `[9]` | Line 9: `Closing Balance: 12500` |
-   | `balance_reconciliation` | `0` (or `0.00`) | `INR` | `available` | `bank.reconciliation.v1` | `[4, 6, 7, 8, 9]` | Complete audit trail ($10000 + 5000 - 2500 - 12500 = 0.00$) |
 
    *(Note: Line 10 in the fixture is an unmapped item: `Unrecognized export note,Synthetic note only`, which is retained in `unmapped` at row 10 and does not alter the calculation source rows).*
 
-3. **Security and Error Response Assertions:**
+3. **Scope Distinction: Why Balance Metrics are Absent from the REST Response:**
+   - The live REST route invokes `build_workspace_analysis(context)`, which intentionally executes `analyze_bank_statement(..., include_balance_metrics=False)` (with `include_reconciliation_metric=False`).
+   - Consequently, `opening_balance`, `closing_balance`, and `balance_reconciliation` (difference) are **not included as metric objects in the REST `metrics` array**.
+   - **Internal Reconciliation Role:** Balance reconciliation is nevertheless computed internally on every statement analysis to establish document `reliability` (`valid` when discrepancy is zero; `unreliable` when non-zero; `insufficient_data` when data is missing) and emit mismatch warnings.
+   - Verification of balance metrics and reconciliation difference as discrete KPI objects belongs to the calculation-layer test suite in Section 7.2.
+
+4. **Security and Error Response Assertions:**
    Black-box tests must also verify non-200 HTTP response codes matching the automated tests in [`backend/tests/api/test_workspace_analysis.py`](../backend/tests/api/test_workspace_analysis.py):
    - **HTTP 401 Unauthorized:** Missing or invalid `Authorization` header returns 401 with `WWW-Authenticate: Bearer` (`test_authentication_and_uuid_validation_precede_database_reads`).
    - **HTTP 404 Not Found:** Querying a workspace owned by another user or an unmapped UUID returns 404 (`test_missing_or_foreign_workspace_does_not_read_document`).
    - **HTTP 409 Conflict (`document_not_ready`):** Querying a workspace where the document is still in `uploaded` status or has `failed` status returns 409 with `detail.code == "document_not_ready"` (`test_document_not_ready`).
 
-### 7.2 Verification via Standalone JSON Contract Runner
-For offline or CI verification without running a live server, an observable contract test script passes a JSON fixture directly into the public calculation engine and checks standard exit codes and JSON output.
+### 7.2 Verification via Standalone Calculation-Layer Runner
+For offline or CI verification without running a live server, calculation-layer verification passes statement data directly into the public calculation functions or calls `analyze_bank_statement()` with full balance metrics enabled.
 
 **Execution Directory & Path Rules:**
 - The command **must be run explicitly from the `backend/` directory** (`cd backend`). This ensures Python adds `backend/` to `sys.path`, resolving `from app.analysis.bank_kpis import analyze_bank_statement`.
 - Contract fixture file paths **must be relative to the `backend/` directory**, e.g., `../contracts/examples/bank-statement.json` and `../contracts/examples/financial-analysis.json`.
 
+**Calculation-Layer Metrics for Synthetic Statement Fixture:**
+When balance metrics are requested at the calculation layer, verify the complete set of balance metrics and reconciliation:
+
+| Metric Key | Expected Value | Unit | Status | Expected Calculation ID | Exact Source Rows | Source Row Derivation in Fixture |
+| :--- | :---: | :---: | :---: | :--- | :---: | :--- |
+| `opening_balance` | `10000` | `INR` | `available` | `bank.opening_balance.v1` | `[4]` | Line 4: `Opening Balance: 10000` |
+| `closing_balance` | `12500` | `INR` | `available` | `bank.closing_balance.v1` | `[9]` | Line 9: `Closing Balance: 12500` |
+| `balance_reconciliation` | `0` (or `0.00`) | `INR` | `available` | `bank.balance_reconciliation.v1` | `[4, 6, 7, 8, 9]` | Full audit trail ($10000 + 5000 - 2500 - 12500 = 0.00$) |
+
 ```bash
 # Step 1: Change to backend directory
 cd backend
 
-# Step 2: Execute observable contract validation command
+# Step 2: Execute calculation-layer verification script
 python -c "
 import json
-from app.analysis.bank_kpis import analyze_bank_statement
+from decimal import Decimal
+from app.analysis.bank_kpis import (
+    analyze_bank_statement,
+    calculate_opening_balance,
+    calculate_closing_balance,
+    calculate_balance_reconciliation,
+)
 
 with open('../contracts/examples/bank-statement.json') as f:
     input_data = json.load(f)
 with open('../contracts/examples/financial-analysis.json') as f:
     expected_output = json.load(f)
 
+# 1. Full contract envelope verification
 actual_output = analyze_bank_statement(
-    input_data, workspace_id='20000000-0000-4000-8000-000000000001'
+    input_data,
+    workspace_id='20000000-0000-4000-8000-000000000001',
+    include_balance_metrics=False,
+    include_reconciliation_metric=False,
 )
 assert actual_output == expected_output, 'Contract mismatch detected!'
-print('Observable Acceptance Verification: 100% Contract Match!')
+
+# 2. Standalone calculation-layer metrics verification
+open_metric = calculate_opening_balance(input_data)
+assert open_metric['calculation_id'] == 'bank.opening_balance.v1'
+assert open_metric['value'] == Decimal('10000.00')
+assert open_metric['source_refs'][0]['source_rows'] == [4]
+
+close_metric = calculate_closing_balance(input_data)
+assert close_metric['calculation_id'] == 'bank.closing_balance.v1'
+assert close_metric['value'] == Decimal('12500.00')
+assert close_metric['source_refs'][0]['source_rows'] == [9]
+
+recon_metric = calculate_balance_reconciliation(input_data)
+assert recon_metric['calculation_id'] == 'bank.balance_reconciliation.v1'
+assert recon_metric['value'] == Decimal('0.00')
+assert recon_metric['source_refs'][0]['source_rows'] == [4, 6, 7, 8, 9]
+
+print('Observable Acceptance Verification: 100% Contract & Calculation-Layer Match!')
 "
 ```
 
 *Observable Assertion:* The exit code must be `0`, and the printed output must confirm:
 ```text
-Observable Acceptance Verification: 100% Contract Match!
+Observable Acceptance Verification: 100% Contract & Calculation-Layer Match!
 ```
 
 ---
