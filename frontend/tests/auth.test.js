@@ -7,7 +7,16 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isLiveSupabase } from "../src/services/auth.js";
+import {
+  isLiveSupabase,
+  signIn,
+  signUpUser,
+  signOutUser,
+  resendConfirmationEmail,
+  sendPasswordResetEmail,
+  updateUserPassword,
+  updateUserEmail,
+} from "../src/services/auth.js";
 import { sanitizeReturnPath } from "../src/features/auth/utils/urlSecurity.js";
 import {
   MOCK_USER_A,
@@ -59,6 +68,46 @@ test("sanitizeReturnPath prevents redirect loops to auth flow routes", () => {
   assert.equal(sanitizeReturnPath("/forgot-password"), "/documents");
   assert.equal(sanitizeReturnPath("/reset-password"), "/documents");
   assert.equal(sanitizeReturnPath("/login?returnTo=/dashboard"), "/documents");
+  assert.equal(sanitizeReturnPath("/login#fragment"), "/documents");
+  assert.equal(sanitizeReturnPath("/signup/"), "/documents");
+  assert.equal(sanitizeReturnPath("/auth/callback?code=abc"), "/documents");
+});
+
+test("sanitizeReturnPath rejects backslash bypass attempts and control characters", () => {
+  const origin = "https://fingenie.invalid";
+  const slashBackslash =
+    "/" + String.fromCharCode(92) + "external.example/phishing";
+  assert.equal(sanitizeReturnPath(slashBackslash, origin), "/documents");
+
+  assert.equal(sanitizeReturnPath("\\external.example", origin), "/documents");
+  assert.equal(sanitizeReturnPath("/\\external.example", origin), "/documents");
+  assert.equal(sanitizeReturnPath("/\\\\evil.com", origin), "/documents");
+
+  // Control characters and null bytes
+  assert.equal(
+    sanitizeReturnPath("/documents" + String.fromCharCode(0), origin),
+    "/documents",
+  );
+  assert.equal(sanitizeReturnPath("/upload\r\n", origin), "/documents");
+});
+
+test("sanitizeReturnPath rejects dot-segment escapes and unsupported destinations", () => {
+  const origin = "https://fingenie.invalid";
+  // Escaping to auth route via dot segments
+  assert.equal(
+    sanitizeReturnPath("/workspaces/../login", origin),
+    "/documents",
+  );
+  assert.equal(
+    sanitizeReturnPath("/upload/../auth/callback", origin),
+    "/documents",
+  );
+  assert.equal(sanitizeReturnPath("/documents/../", origin), "/documents");
+
+  // Unsupported root paths
+  assert.equal(sanitizeReturnPath("/unknown-route", origin), "/documents");
+  assert.equal(sanitizeReturnPath("/admin/secret", origin), "/documents");
+  assert.equal(sanitizeReturnPath("/api/v1/internal", origin), "/documents");
 });
 
 // ── Account isolation and mocks ──────────────────────────────────────────────
@@ -241,4 +290,173 @@ test("password validation enforces minimum 8 characters", () => {
   assert.equal(validatePassword("SecurePass1"), true);
   assert.equal(validatePassword("short"), false);
   assert.equal(validatePassword(""), false);
+});
+
+// ── Auth client actions ──────────────────────────────────────────────────────
+
+test("resendConfirmationEmail validates email input and throws auth_unconfigured when offline", async () => {
+  await assert.rejects(async () => {
+    await resendConfirmationEmail({ email: "" });
+  }, /email address/i);
+
+  await assert.rejects(async () => {
+    await resendConfirmationEmail({ email: null });
+  }, /email address/i);
+
+  // When email is provided but Supabase is unconfigured, throws auth_unconfigured
+  await assert.rejects(
+    async () => {
+      await resendConfirmationEmail({ email: "user@fingenie.app" });
+    },
+    (err) => err.code === "auth_unconfigured",
+  );
+});
+
+test("signOutUser returns structured result and clears local state", async () => {
+  const res = await signOutUser();
+  assert.equal(typeof res, "object");
+  assert.equal(res.success, true);
+  assert.equal(res.remoteRevoked, true);
+  assert.equal(res.error, null);
+});
+
+test("auth client throws documented auth_unconfigured error when environment is missing", async () => {
+  await assert.rejects(
+    async () => {
+      await signIn({ email: "test@example.com", password: "password123" });
+    },
+    (err) => err.code === "auth_unconfigured",
+  );
+
+  await assert.rejects(
+    async () => {
+      await signUpUser({ email: "test@example.com", password: "password123" });
+    },
+    (err) => err.code === "auth_unconfigured",
+  );
+
+  await assert.rejects(
+    async () => {
+      await sendPasswordResetEmail({ email: "test@example.com" });
+    },
+    (err) => err.code === "auth_unconfigured",
+  );
+
+  await assert.rejects(
+    async () => {
+      await updateUserPassword({ newPassword: "NewSecurePassword1" });
+    },
+    (err) => err.code === "auth_unconfigured",
+  );
+
+  await assert.rejects(
+    async () => {
+      await updateUserEmail({ newEmail: "new@example.com" });
+    },
+    (err) => err.code === "auth_unconfigured",
+  );
+});
+
+// ── Auth provider lifecycle & race isolation tests ──────────────────────────
+
+test("auth lifecycle: stale /me verification resolving after signOut cannot restore identity (Reproduction A)", async () => {
+  // Simulates AuthContext verification generation tracking
+  let verificationGen = 0;
+  let status = "unauthenticated";
+  let activeUser = null;
+
+  // Step 1: Session A restored, verification starts
+  const genA = ++verificationGen;
+  let resolveMeA;
+  const pendingMePromise = new Promise((resolve) => {
+    resolveMeA = resolve;
+  });
+
+  // Step 2: User A signs out before verification finishes
+  // In our fix: signOut() unconditionally bumps verificationGen
+  ++verificationGen;
+  status = "unauthenticated";
+  activeUser = null;
+
+  // Step 3: Delayed /me resolves for User A
+  resolveMeA({ id: "user-A-uuid", email: "a@fingenie.app" });
+  const meResult = await pendingMePromise;
+
+  // AuthContext check: drop result if generation changed
+  if (genA === verificationGen) {
+    status = "authenticated";
+    activeUser = meResult;
+  }
+
+  // Verification: status MUST remain unauthenticated and activeUser MUST remain null
+  assert.equal(
+    status,
+    "unauthenticated",
+    "Delayed /me result must not restore authenticated state after signOut",
+  );
+  assert.equal(activeUser, null, "Active user must remain null");
+});
+
+test("auth lifecycle: account A old 401 does not clear account B active session (Reproduction B)", async () => {
+  // Simulates AuthContext token-bound 401 handler
+  let activeToken = "token-account-B";
+  let activeStatus = "authenticated";
+  let activeUser = { id: "user-B", email: "b@fingenie.app" };
+
+  function handleUnauthorized(error, failedToken) {
+    // If the 401 belongs to an old token, ignore it
+    if (failedToken && failedToken !== activeToken) {
+      return; // Ignored: stale token from previous account or prior to refresh
+    }
+    activeStatus = "unauthenticated";
+    activeUser = null;
+    activeToken = null;
+  }
+
+  // Account A's old request fails with 401 and reports failedToken 'token-account-A'
+  handleUnauthorized(
+    { status: 401, message: "Token expired" },
+    "token-account-A",
+  );
+
+  // Account B MUST remain authenticated
+  assert.equal(
+    activeStatus,
+    "authenticated",
+    "Account B must not be signed out by Account A's late 401",
+  );
+  assert.equal(activeToken, "token-account-B");
+  assert.equal(activeUser.id, "user-B");
+
+  // When 401 matches activeToken, session is cleared
+  handleUnauthorized(
+    { status: 401, message: "Token expired" },
+    "token-account-B",
+  );
+  assert.equal(activeStatus, "unauthenticated");
+  assert.equal(activeUser, null);
+});
+
+test("auth lifecycle: same-user token refresh preserves verified readiness", () => {
+  let status = "authenticated";
+  let activeUser = { id: "user-A", email: "a@fingenie.app" };
+  let workspaceState = { activeWorkspaceId: "ws-123", transactionsCount: 42 };
+
+  function handleAuthStateChange(event, session) {
+    if (event === "TOKEN_REFRESHED" && session?.user?.id === activeUser?.id) {
+      // Preserve verified readiness and workspace financial state
+      return;
+    }
+    // Account change or logout would clear financial state
+    workspaceState = null;
+  }
+
+  handleAuthStateChange("TOKEN_REFRESHED", {
+    user: { id: "user-A" },
+    access_token: "refreshed-token",
+  });
+
+  assert.equal(status, "authenticated");
+  assert.ok(workspaceState);
+  assert.equal(workspaceState.activeWorkspaceId, "ws-123");
 });

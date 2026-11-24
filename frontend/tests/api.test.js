@@ -267,3 +267,232 @@ test("uploadBankStatement sends multipart request with exact contract fields", a
     global.fetch = originalFetch;
   }
 });
+
+test("apiRequest preserves caller Idempotency-Key and custom headers", async () => {
+  const originalFetch = global.fetch;
+  let capturedHeaders = null;
+
+  global.fetch = async (url, options) => {
+    capturedHeaders = options.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "ok" }),
+    };
+  };
+
+  try {
+    await apiRequest(
+      "/workspaces",
+      {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": "idem-key-777",
+          "X-Custom-Client": "FinGenie-Test",
+        },
+      },
+      "test-token",
+    );
+
+    assert.ok(capturedHeaders);
+    assert.strictEqual(capturedHeaders["Idempotency-Key"], "idem-key-777");
+    assert.strictEqual(capturedHeaders["X-Custom-Client"], "FinGenie-Test");
+    assert.strictEqual(capturedHeaders["Authorization"], "Bearer test-token");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("apiRequest strips caller content-type on FormData regardless of casing", async () => {
+  const originalFetch = global.fetch;
+  let capturedHeaders = null;
+
+  global.fetch = async (url, options) => {
+    capturedHeaders = options.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "ok" }),
+    };
+  };
+
+  try {
+    const fakeFormData = new FormData();
+    fakeFormData.append("test", "val");
+
+    // Pass lowercase 'content-type' in headers
+    await apiRequest(
+      "/upload",
+      {
+        method: "POST",
+        body: fakeFormData,
+        headers: {
+          "content-type": "application/json",
+          "X-Request-Id": "req-123",
+        },
+      },
+      "test-token",
+    );
+
+    assert.ok(capturedHeaders);
+    assert.strictEqual(capturedHeaders["content-type"], undefined);
+    assert.strictEqual(capturedHeaders["Content-Type"], undefined);
+    assert.strictEqual(capturedHeaders["X-Request-Id"], "req-123");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("apiRequest replaces case-variant authorization header with canonical Bearer", async () => {
+  const originalFetch = global.fetch;
+  let capturedHeaders = null;
+
+  global.fetch = async (url, options) => {
+    capturedHeaders = options.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "ok" }),
+    };
+  };
+
+  try {
+    await apiRequest(
+      "/me",
+      {
+        method: "GET",
+        headers: {
+          authorization: "Old-Scheme old-token",
+        },
+      },
+      "new-token",
+    );
+
+    assert.ok(capturedHeaders);
+    assert.strictEqual(capturedHeaders["authorization"], undefined);
+    assert.strictEqual(capturedHeaders["Authorization"], "Bearer new-token");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("apiRequest strictly rejects external, protocol-relative, or backslash endpoints without fetch", async () => {
+  const originalFetch = global.fetch;
+  let fetchCalled = false;
+
+  global.fetch = async () => {
+    fetchCalled = true;
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  try {
+    const maliciousEndpoints = [
+      "https://attacker.example/api",
+      "http://attacker.example/api",
+      "//attacker.example/api",
+      "/\\attacker.example/api",
+      "\\malicious\\path",
+      "",
+      "   ",
+      null,
+    ];
+
+    for (const ep of maliciousEndpoints) {
+      await assert.rejects(
+        async () => {
+          await apiRequest(ep, { method: "GET" }, "test-token");
+        },
+        (err) => err instanceof ApiError && err.code === "invalid_endpoint",
+        `Endpoint '${ep}' should be rejected as invalid_endpoint`,
+      );
+    }
+
+    assert.strictEqual(
+      fetchCalled,
+      false,
+      "fetch must never be called for rejected endpoints",
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("apiRequest passes failedToken to unauthorizedHandler on 401", async () => {
+  const originalFetch = global.fetch;
+  let capturedError = null;
+  let capturedFailedToken = null;
+
+  setUnauthorizedHandler((err, token) => {
+    capturedError = err;
+    capturedFailedToken = token;
+  });
+
+  try {
+    global.fetch = async () => ({
+      ok: false,
+      status: 401,
+      headers: { get: () => null },
+      json: async () => ({ detail: "Token expired" }),
+    });
+
+    await assert.rejects(
+      async () => {
+        await apiRequest(
+          "/workspaces",
+          { method: "GET" },
+          "token-of-account-a",
+        );
+      },
+      (err) => err.status === 401,
+    );
+
+    assert.ok(capturedError);
+    assert.strictEqual(capturedError.status, 401);
+    assert.strictEqual(capturedFailedToken, "token-of-account-a");
+  } finally {
+    setUnauthorizedHandler(null);
+    global.fetch = originalFetch;
+  }
+});
+
+test("apiRequest returns null for 204 No Content responses", async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => ({
+    ok: true,
+    status: 204,
+  });
+
+  try {
+    const result = await apiRequest(
+      "/workspaces/1",
+      { method: "DELETE" },
+      "test-token",
+    );
+    assert.strictEqual(result, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("apiRequest throws aborted ApiError when AbortSignal triggers", async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => {
+    const abortErr = new Error("The operation was aborted");
+    abortErr.name = "AbortError";
+    throw abortErr;
+  };
+
+  try {
+    await assert.rejects(
+      async () => {
+        await apiRequest("/workspaces", { method: "GET" }, "test-token");
+      },
+      (err) =>
+        err instanceof ApiError && err.code === "aborted" && err.status === 0,
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
