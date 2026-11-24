@@ -1016,7 +1016,9 @@ def test_uploaded_document_feeds_owned_summary(
 
         async def generate(self, *, messages, temperature):
             calls.append(messages)
-            return SimpleNamespace(content=summary_text)
+            return SimpleNamespace(
+                content=summary_text, finish_reason="stop", tool_calls=[]
+            )
 
     async def unexpected_chat(*args):
         pytest.fail("A foreign workspace reached the chat engine.")

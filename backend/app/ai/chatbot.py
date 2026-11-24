@@ -76,11 +76,15 @@ async def chat_with_workspace(
         )
 
         # If the model finished without asking for more tools, we have our answer
-        if not response.tool_calls:
+        tool_calls = getattr(response, "tool_calls", [])
+        if not tool_calls:
             if verbose:
                 print(
                     f"  [Turn {turn}] Model synthesized answer directly without further tool calls."
                 )
+            finish_reason = getattr(response, "finish_reason", "stop")
+            if hasattr(response, "finish_reason") and finish_reason != "stop":
+                return _offline_chat_fallback(cleaned_msg, workspace_data)
             final_text = response.content or ""
             break
 
@@ -133,6 +137,8 @@ async def chat_with_workspace(
                 }
             )
     else:
+        if response.finish_reason == "length":
+            return _offline_chat_fallback(cleaned_msg, workspace_data)
         final_text = (
             response.content
             or "I could not complete the calculation within the allowed reasoning turns."
