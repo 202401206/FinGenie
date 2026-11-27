@@ -1,11 +1,23 @@
 import React from 'react';
 import MetricCard from './MetricCard.jsx';
+import TransactionExplorer from './TransactionExplorer.jsx';
 
 /**
  * Bank Statement Dashboard View
- * Displays Inflow, Outflow, Net Cash Flow cards + slot for transaction exploration
+ * Displays Inflow, Outflow, Net Cash Flow cards + Bank Transaction Explorer
  */
-export function BankDashboardView({ metrics = [], onInspectEvidence, children }) {
+export function BankDashboardView({
+  metrics = [],
+  transactions = [],
+  total = 0,
+  offset = 0,
+  limit = 50,
+  currency = 'INR',
+  highlightSourceRow = null,
+  onPageChange = null,
+  onInspectEvidence = null,
+  children = null
+}) {
   // Sort known bank metrics in logical order
   const order = ['total_credit', 'total_debit', 'net_cash_flow'];
   const sortedMetrics = [...metrics].sort((a, b) => {
@@ -34,7 +46,18 @@ export function BankDashboardView({ metrics = [], onInspectEvidence, children })
         ))}
       </div>
 
-      {/* Slot for children (e.g. Transactions Table, Summary Panel, Charts) */}
+      {/* Paginated Bank Transactions Ledger */}
+      <TransactionExplorer
+        transactions={transactions}
+        total={total}
+        offset={offset}
+        limit={limit}
+        currency={currency}
+        highlightSourceRow={highlightSourceRow}
+        onPageChange={onPageChange}
+      />
+
+      {/* Slot for children (e.g. Summary Panel, Charts) */}
       {children}
     </div>
   );

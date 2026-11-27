@@ -22,10 +22,16 @@ export function DashboardPage({
   workspaceId = null,
   analysis = null,
   documentMetadata = null,
+  transactions = [],
+  total = 0,
+  offset = 0,
+  limit = 50,
+  highlightSourceRow = null,
   loading = false,
   error = null,
   onNavigate = null,
   onRetry = null,
+  onPageChange = null,
   onInspectEvidence = null,
   children = null
 }) {
@@ -131,6 +137,13 @@ export function DashboardPage({
       ) : (
         <BankDashboardView
           metrics={metrics}
+          transactions={transactions}
+          total={total}
+          offset={offset}
+          limit={limit}
+          currency={currency}
+          highlightSourceRow={highlightSourceRow}
+          onPageChange={onPageChange}
           onInspectEvidence={onInspectEvidence}
         >
           {children}

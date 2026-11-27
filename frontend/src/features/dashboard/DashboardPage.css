@@ -402,3 +402,218 @@
 @keyframes fg-spin {
   to { transform: rotate(360deg); }
 }
+
+
+/* ==========================================================================
+   Transaction Explorer & Table Styles
+   ========================================================================== */
+.fg-transaction-explorer {
+  margin-top: 32px;
+  background: var(--fg-pure-white, #FFFFFF);
+  border: 1px solid var(--fg-light-grey-green, #E1E8E2);
+  border-radius: var(--radius-card, 14px);
+  padding: 24px;
+  box-shadow: var(--shadow-subtle, 0 1px 3px rgba(16, 37, 30, 0.04));
+}
+
+.fg-explorer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.fg-explorer-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--fg-forest-green, #10251E);
+  margin: 0 0 4px 0;
+}
+
+.fg-explorer-subtitle {
+  font-size: 13px;
+  color: var(--fg-muted-grey, #68746D);
+  margin: 0;
+}
+
+.fg-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fg-pagination-btn {
+  background: white;
+  border: 1px solid var(--fg-light-grey-green, #E1E8E2);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-forest-green, #10251E);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fg-pagination-btn:hover:not(:disabled) {
+  background: var(--fg-pale-mint, #E7F4EC);
+  border-color: var(--fg-emerald-green, #1D8A60);
+}
+
+.fg-pagination-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fg-pagination-indicator {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted-grey, #68746D);
+  padding: 0 4px;
+}
+
+.fg-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--fg-light-grey-green, #E1E8E2);
+  border-radius: 10px;
+}
+
+.fg-transactions-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.fg-transactions-table th {
+  background: #F8FAF8;
+  padding: 12px 16px;
+  font-weight: 700;
+  color: var(--fg-forest-green, #10251E);
+  border-bottom: 1px solid var(--fg-light-grey-green, #E1E8E2);
+  white-space: nowrap;
+}
+
+.fg-transactions-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #F0F4F1;
+  color: var(--fg-charcoal, #202923);
+  font-feature-settings: 'tnum';
+}
+
+.fg-table-row {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.fg-table-row:hover {
+  background: #F4F7F5;
+}
+
+.fg-table-row.selected {
+  background: #EAF4EE;
+}
+
+.fg-table-row.highlighted {
+  background: #FEF9C3;
+  outline: 2px solid #EAB308;
+}
+
+.fg-row-tag {
+  font-size: 11px;
+  font-family: monospace;
+  background: #EAEFEA;
+  color: #495E50;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.fg-cell-debit {
+  text-align: right;
+  color: var(--fg-soft-red, #C94C4C);
+}
+
+.fg-cell-credit {
+  text-align: right;
+  color: var(--fg-emerald-green, #1D8A60);
+  font-weight: 600;
+}
+
+.fg-cell-balance {
+  text-align: right;
+  font-weight: 600;
+}
+
+.fg-table-empty {
+  text-align: center;
+  padding: 36px !important;
+  color: var(--fg-muted-grey, #68746D);
+  font-style: italic;
+}
+
+/* Detail Drawer */
+.fg-tx-detail-drawer {
+  margin-top: 18px;
+  background: #F9FBF9;
+  border: 1px solid var(--fg-light-grey-green, #E1E8E2);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.fg-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.fg-drawer-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg-forest-green, #10251E);
+}
+
+.fg-drawer-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--fg-muted-grey, #68746D);
+}
+
+.fg-drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.fg-drawer-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fg-drawer-item.full {
+  grid-column: 1 / -1;
+}
+
+.fg-drawer-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--fg-muted-grey, #68746D);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.fg-drawer-value {
+  font-size: 13px;
+  color: var(--fg-charcoal, #202923);
+  font-weight: 600;
+}
+
+.fg-drawer-value.mono {
+  font-family: monospace;
+  font-size: 12px;
+}
