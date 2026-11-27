@@ -8,6 +8,7 @@ import {
   DashboardErrorState
 } from './components/DashboardStates.jsx';
 import { formatCurrencyLabel } from '../../utils/formatters.js';
+import { useDashboardAnalysis } from './useDashboardAnalysis.js';
 import './DashboardPage.css';
 
 // Default development fixtures for offline inspection
@@ -28,8 +29,17 @@ export function DashboardPage({
   onInspectEvidence = null,
   children = null
 }) {
+  // Use custom hook if analysis is not explicitly injected as a prop
+  const hookResult = useDashboardAnalysis(workspaceId, {
+    skip: Boolean(analysis) || !workspaceId
+  });
+
+  const activeLoading = loading || (Boolean(workspaceId) && !analysis && hookResult.loading);
+  const activeError = error || (!analysis && hookResult.error);
+  const handleRetryAction = onRetry || hookResult.reload;
+
   // 1. Loading State
-  if (loading) {
+  if (activeLoading) {
     return (
       <main className="fg-dashboard-page" aria-busy="true">
         <DashboardLoadingState />
@@ -38,20 +48,20 @@ export function DashboardPage({
   }
 
   // 2. Error State
-  if (error) {
+  if (activeError) {
     return (
       <main className="fg-dashboard-page">
         <DashboardErrorState
-          error={error}
-          onRetry={onRetry}
+          error={activeError}
+          onRetry={handleRetryAction}
           onNavigateUpload={onNavigate ? () => onNavigate('upload') : null}
         />
       </main>
     );
   }
 
-  // Determine active analysis data: real passed analysis or fallback fixture in dev
-  const activeAnalysis = analysis || (workspaceId ? null : defaultBankFixture);
+  // Determine active analysis data: injected analysis, fetched analysis, or dev fixture
+  const activeAnalysis = analysis || hookResult.analysis || (workspaceId ? null : defaultBankFixture);
 
   // 3. Empty State (no workspace or document)
   if (!activeAnalysis && !documentMetadata) {
