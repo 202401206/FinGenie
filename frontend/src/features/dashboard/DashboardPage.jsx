@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import ReliabilityBanner from './components/ReliabilityBanner.jsx';
+import EvidenceFocusBanner from './components/EvidenceFocusBanner.jsx';
 import BankDashboardView from './components/BankDashboardView.jsx';
 import BalanceSheetDashboardView from './components/BalanceSheetDashboardView.jsx';
 import {
@@ -39,6 +40,26 @@ export function DashboardPage({
   const hookResult = useDashboardAnalysis(workspaceId, {
     skip: Boolean(analysis) || !workspaceId
   });
+
+  // Evidence query handling: read ?documentId=...&sourceRow=...
+  const [activeSourceRow, setActiveSourceRow] = useState(highlightSourceRow);
+  const [activeDocId, setActiveDocId] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location?.search) {
+      const params = new URLSearchParams(window.location.search);
+      const rowParam = params.get('sourceRow');
+      const docParam = params.get('documentId');
+      if (rowParam && !isNaN(Number(rowParam))) {
+        setActiveSourceRow(Number(rowParam));
+      }
+      if (docParam) {
+        setActiveDocId(docParam);
+      }
+    } else if (highlightSourceRow !== null) {
+      setActiveSourceRow(Number(highlightSourceRow));
+    }
+  }, [highlightSourceRow]);
 
   const activeLoading = loading || (Boolean(workspaceId) && !analysis && hookResult.loading);
   const activeError = error || (!analysis && hookResult.error);
@@ -89,6 +110,8 @@ export function DashboardPage({
 
   const isBalanceSheet = docType === 'balance_sheet';
 
+  const isRowLoaded = transactions.some(tx => tx.source_row === Number(activeSourceRow));
+
   return (
     <main className="fg-dashboard-page">
       {/* Workspace / Document Header */}
@@ -123,6 +146,20 @@ export function DashboardPage({
         )}
       </header>
 
+      {/* Evidence Focus Banner when query ?sourceRow=... is present */}
+      {activeSourceRow !== null && (
+        <EvidenceFocusBanner
+          sourceRow={activeSourceRow}
+          documentId={activeDocId}
+          isRowLoaded={isRowLoaded}
+          offset={offset}
+          limit={limit}
+          total={total}
+          isBalanceSheet={isBalanceSheet}
+          onClearFocus={() => setActiveSourceRow(null)}
+        />
+      )}
+
       {/* Reliability & Verification Warnings Banner */}
       <ReliabilityBanner reliability={reliability} warnings={warnings} />
 
@@ -130,6 +167,7 @@ export function DashboardPage({
       {isBalanceSheet ? (
         <BalanceSheetDashboardView
           metrics={metrics}
+          currency={currency}
           onInspectEvidence={onInspectEvidence}
         >
           {children}
@@ -142,7 +180,7 @@ export function DashboardPage({
           offset={offset}
           limit={limit}
           currency={currency}
-          highlightSourceRow={highlightSourceRow}
+          highlightSourceRow={activeSourceRow}
           onPageChange={onPageChange}
           onInspectEvidence={onInspectEvidence}
         >

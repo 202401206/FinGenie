@@ -1,6 +1,7 @@
 import React from 'react';
 import MetricCard from './MetricCard.jsx';
 import TransactionExplorer from './TransactionExplorer.jsx';
+import FinancialMetricsChart from './FinancialMetricsChart.jsx';
 
 /**
  * Bank Statement Dashboard View
@@ -45,6 +46,13 @@ export function BankDashboardView({
           />
         ))}
       </div>
+
+      {/* Visual Metrics Distribution */}
+      <FinancialMetricsChart
+        metrics={metrics}
+        documentType="bank_statement"
+        currency={currency}
+      />
 
       {/* Paginated Bank Transactions Ledger */}
       <TransactionExplorer

@@ -1,12 +1,13 @@
 import React from 'react';
 import MetricCard from './MetricCard.jsx';
+import FinancialMetricsChart from './FinancialMetricsChart.jsx';
 
 /**
  * Balance Sheet Dashboard View
  * Displays Working Capital, Current Ratio, and Balance Difference metrics.
  * Note: Balance sheets have NO transaction ledger, so transaction table is intentionally omitted.
  */
-export function BalanceSheetDashboardView({ metrics = [], onInspectEvidence, children }) {
+export function BalanceSheetDashboardView({ metrics = [], currency = 'INR', onInspectEvidence, children }) {
   const order = ['working_capital', 'current_ratio', 'balance_difference'];
   const sortedMetrics = [...metrics].sort((a, b) => {
     const idxA = order.indexOf(a.key);
@@ -33,6 +34,13 @@ export function BalanceSheetDashboardView({ metrics = [], onInspectEvidence, chi
           />
         ))}
       </div>
+
+      {/* Balance Sheet Position Visual Chart */}
+      <FinancialMetricsChart
+        metrics={metrics}
+        documentType="balance_sheet"
+        currency={currency}
+      />
 
       <div className="fg-balance-info-notice" role="note">
         <span className="fg-info-icon" aria-hidden="true">💡</span>

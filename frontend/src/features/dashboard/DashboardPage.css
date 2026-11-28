@@ -617,3 +617,201 @@
   font-family: monospace;
   font-size: 12px;
 }
+
+
+/* ==========================================================================
+   Financial Metrics Chart Styles (Milestone 4)
+   ========================================================================== */
+.fg-metrics-chart-panel {
+  margin: 24px 0;
+  background: var(--fg-pure-white, #FFFFFF);
+  border: 1px solid var(--fg-light-grey-green, #E1E8E2);
+  border-radius: var(--radius-card, 14px);
+  padding: 24px;
+  box-shadow: var(--shadow-subtle, 0 1px 3px rgba(16, 37, 30, 0.04));
+}
+
+.fg-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.fg-chart-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg-forest-green, #10251E);
+}
+
+.fg-chart-legend-unit {
+  font-size: 12px;
+  color: var(--fg-muted-grey, #68746D);
+  font-weight: 600;
+}
+
+/* Balance Grid */
+.fg-chart-grid-balance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.fg-chart-card {
+  padding: 16px;
+  background: #F9FAF9;
+  border-radius: 10px;
+  border: 1px solid #E8EFEA;
+}
+
+.fg-chart-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--fg-muted-grey, #68746D);
+}
+
+.fg-chart-card-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg-forest-green, #10251E);
+  margin: 6px 0 10px 0;
+}
+
+.fg-chart-card-val.ratio {
+  color: #0369A1;
+}
+
+.fg-chart-subtext {
+  display: block;
+  font-size: 11px;
+  color: var(--fg-muted-grey, #68746D);
+  margin-top: 6px;
+}
+
+/* Bank Chart Rows */
+.fg-chart-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fg-chart-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fg-chart-row-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.fg-chart-row-label {
+  font-weight: 600;
+  color: var(--fg-charcoal, #202923);
+}
+
+.fg-chart-row-val {
+  font-weight: 700;
+  font-feature-settings: 'tnum';
+}
+
+.fg-chart-row-val.positive {
+  color: var(--fg-emerald-green, #1D8A60);
+}
+
+.fg-chart-row-val.negative {
+  color: var(--fg-soft-red, #C94C4C);
+}
+
+/* Bar Tracks & Fills */
+.fg-bar-track {
+  height: 10px;
+  background: #EBF0EC;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fg-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.fg-bar-fill.credit,
+.fg-bar-fill.positive,
+.fg-bar-fill.net-positive {
+  background: var(--fg-emerald-green, #1D8A60);
+}
+
+.fg-bar-fill.debit,
+.fg-bar-fill.negative,
+.fg-bar-fill.net-negative {
+  background: var(--fg-soft-red, #C94C4C);
+}
+
+.fg-bar-fill.healthy {
+  background: #0284C7;
+}
+
+.fg-bar-fill.warning {
+  background: var(--fg-amber, #D99A32);
+}
+
+.fg-bar-fill.balanced {
+  background: #059669;
+}
+
+/* Evidence Focus Banner */
+.fg-evidence-focus-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 20px;
+  background: #FEF9C3;
+  border: 1px solid #FACC15;
+  border-radius: var(--radius-card, 14px);
+  margin-bottom: 24px;
+}
+
+.fg-evidence-focus-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.fg-evidence-focus-content {
+  flex: 1;
+}
+
+.fg-evidence-focus-title {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #854D0E;
+}
+
+.fg-evidence-focus-desc {
+  margin: 0;
+  font-size: 13px;
+  color: #713F12;
+  line-height: 1.45;
+}
+
+.fg-evidence-clear-btn {
+  background: transparent;
+  border: 1px solid #CA8A04;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #854D0E;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fg-evidence-clear-btn:hover {
+  background: #FEF08A;
+}
