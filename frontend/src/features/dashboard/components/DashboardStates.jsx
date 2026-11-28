@@ -65,3 +65,17 @@ export function DashboardErrorState({ error, onRetry, onNavigateUpload }) {
     </div>
   );
 }
+
+
+export function DashboardDeletionPendingState() {
+  return (
+    <div className="fg-dashboard-state-container fg-deletion-state" role="status" aria-live="polite">
+      <div className="fg-state-icon" aria-hidden="true">🗑️</div>
+      <h3 className="fg-state-title">Deletion In Progress</h3>
+      <p className="fg-state-desc">
+        Workspace financial records and associated statement data are currently being deleted. 
+        Financial content is hidden and new mutations are suspended.
+      </p>
+    </div>
+  );
+}

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import ReliabilityBanner from './components/ReliabilityBanner.jsx';
 import EvidenceFocusBanner from './components/EvidenceFocusBanner.jsx';
+import FinancialSummaryMount from './components/FinancialSummaryMount.jsx';
 import BankDashboardView from './components/BankDashboardView.jsx';
 import BalanceSheetDashboardView from './components/BalanceSheetDashboardView.jsx';
 import {
   DashboardLoadingState,
   DashboardEmptyState,
-  DashboardErrorState
+  DashboardErrorState,
+  DashboardDeletionPendingState
 } from './components/DashboardStates.jsx';
 import { formatCurrencyLabel } from '../../utils/formatters.js';
 import { useDashboardAnalysis } from './useDashboardAnalysis.js';
@@ -28,6 +30,8 @@ export function DashboardPage({
   offset = 0,
   limit = 50,
   highlightSourceRow = null,
+  deletionPending = false,
+  SummaryComponent = null,
   loading = false,
   error = null,
   onNavigate = null,
@@ -83,6 +87,15 @@ export function DashboardPage({
           onRetry={handleRetryAction}
           onNavigateUpload={onNavigate ? () => onNavigate('upload') : null}
         />
+      </main>
+    );
+  }
+
+  // 3. Deletion Pending State (from Person 1 useFinancialData)
+  if (deletionPending) {
+    return (
+      <main className="fg-dashboard-page">
+        <DashboardDeletionPendingState />
       </main>
     );
   }
@@ -187,6 +200,13 @@ export function DashboardPage({
           {children}
         </BankDashboardView>
       )}
+
+      {/* AI Financial Executive Summary Panel (Person 4 Component Mount) */}
+      <FinancialSummaryMount
+        workspaceId={workspaceId}
+        SummaryComponent={SummaryComponent}
+        onNavigateChat={onNavigate ? () => onNavigate('chat') : null}
+      />
     </main>
   );
 }

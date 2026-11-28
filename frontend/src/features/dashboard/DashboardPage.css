@@ -815,3 +815,141 @@
 .fg-evidence-clear-btn:hover {
   background: #FEF08A;
 }
+
+
+/* ==========================================================================
+   AI Financial Summary Mount Styles (Milestone 5)
+   ========================================================================== */
+.fg-summary-mount-panel {
+  margin-top: 32px;
+  background: var(--fg-pure-white, #FFFFFF);
+  border: 1px solid var(--fg-light-grey-green, #E1E8E2);
+  border-radius: var(--radius-card, 14px);
+  padding: 24px;
+  box-shadow: var(--shadow-subtle, 0 1px 3px rgba(16, 37, 30, 0.04));
+}
+
+.fg-summary-mount-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.fg-summary-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fg-summary-icon {
+  font-size: 24px;
+}
+
+.fg-summary-title {
+  margin: 0 0 2px 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg-forest-green, #10251E);
+}
+
+.fg-summary-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-muted-grey, #68746D);
+}
+
+.fg-summary-chat-btn {
+  background: var(--fg-pale-mint, #E7F4EC);
+  color: var(--fg-emerald-green, #1D8A60);
+  border: 1px solid #BEE3CC;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fg-summary-chat-btn:hover {
+  background: var(--fg-emerald-green, #1D8A60);
+  color: white;
+}
+
+.fg-summary-cta-box {
+  padding: 24px;
+  background: #F8FAF8;
+  border: 1px dashed var(--fg-light-grey-green, #E1E8E2);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.fg-summary-cta-text {
+  font-size: 13px;
+  color: var(--fg-muted-grey, #68746D);
+  margin: 0 0 14px 0;
+}
+
+.fg-summary-error-box {
+  padding: 16px 20px;
+  background: var(--fg-soft-red-light, #FDF2F2);
+  border: 1px solid #F5C2C2;
+  border-radius: 10px;
+  color: #991B1B;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fg-summary-content-area {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fg-summary-narrative-placeholder {
+  padding: 20px;
+  background: #F6F9F7;
+  border-radius: 10px;
+  border-left: 4px solid var(--fg-emerald-green, #1D8A60);
+}
+
+.fg-narrative-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--fg-emerald-green, #1D8A60);
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+.fg-narrative-lead {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-charcoal, #202923);
+  margin: 0 0 10px 0;
+}
+
+.fg-narrative-bullets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--fg-muted-grey, #68746D);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fg-summary-disclaimer {
+  padding: 10px 14px;
+  background: #F3F4F6;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #4B5563;
+  line-height: 1.4;
+}
